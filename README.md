@@ -45,9 +45,16 @@ The function also needs `SUPABASE_URL` and `SUPABASE_ANON_KEY` (auto-injected by
 | --- | --- |
 | `npm run dev` | dev server |
 | `npm run build` | typecheck + production build to `dist/` |
-| `npm test` | unit tests for the sync engine |
+| `npm test` | unit tests for the sync engine + rate limiters |
+| `npm run test:e2e` | Playwright two-client tests (needs `.env.local` keys + migrations; skips otherwise) |
 | `npm run lint` | ESLint over `src/` |
 | `npm run preview` | serve the production build |
+
+## Two-client E2E
+
+`npm run test:e2e` opens **two isolated browser contexts** (separate storage → separate anonymous users, like two friends on two laptops) and verifies the full flow over a live Supabase project: room create/join, presence, chat round-trip through Postgres, host playback lock, queue sync, invite-only lock rejection, and the room-password prompt (wrong vs right password). First run: `npx playwright install chromium`.
+
+CI runs lint + typecheck + unit tests + build on every push; the E2E suite runs locally (it needs real Supabase credentials).
 
 ## Deploy
 
