@@ -1444,6 +1444,61 @@ input[type="range"].volume:disabled {
   padding: 9px 12px;
 }
 
+.emoji-wrap {
+  position: relative;
+  flex: none;
+}
+
+.emoji-btn {
+  height: 36px;
+  width: 38px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.emoji-btn:hover {
+  background: #2f2a25;
+}
+
+.emoji-picker {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(8, 32px);
+  gap: 2px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+  z-index: 40;
+}
+
+.emoji-cell {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s, transform 0.12s;
+}
+
+.emoji-cell:hover {
+  background: var(--panel-2);
+  transform: scale(1.12);
+}
+
 .overlay {
   position: fixed;
   inset: 0;

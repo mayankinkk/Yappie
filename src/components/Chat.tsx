@@ -4,6 +4,13 @@ import { useSession } from "../stores/session";
 import { initials, nameHue } from "../lib/ids";
 import { formatClock } from "../lib/time";
 
+const EMOJIS = [
+  "😀", "😂", "🥹", "😍", "😎", "🤔", "😴", "😭",
+  "🥳", "😱", "😅", "🤦", "🔥", "✨", "❤️", "👍",
+  "👎", "👏", "🙌", "🤝", "💯", "🎉", "⭐", "🌙",
+  "🎬", "🍿", "🎧", "🎸", "🐶", "🐱", "🌍", "🚀",
+];
+
 export default function Chat() {
   const messages = useRoom((s) => s.messages);
   const unread = useRoom((s) => s.unread);
@@ -14,7 +21,26 @@ export default function Chat() {
   const myId = useSession((s) => s.profile?.id);
   const [text, setText] = useState("");
   const [tick, setTick] = useState(0);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (!pickerRef.current?.contains(e.target as Node)) setPickerOpen(false);
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") setPickerOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [pickerOpen]);
 
   useEffect(() => {
     const el = listRef.current;
@@ -40,6 +66,13 @@ export default function Chat() {
   }
 
   void tick;
+  function insertEmoji(e: string) {
+    const next = (text + e).slice(0, 500);
+    setText(next);
+    if (next.trim()) setTyping(true);
+    inputRef.current?.focus();
+  }
+
   const typers = Object.values(typing).filter((t) => Date.now() - t.at < 4_000);
   const typingLabel =
     typers.length === 1
@@ -98,7 +131,35 @@ export default function Chat() {
         </div>
       )}
       <form className="chat-form" onSubmit={submit}>
+        <div className="emoji-wrap" ref={pickerRef}>
+          <button
+            type="button"
+            className="emoji-btn"
+            title="Emoji"
+            aria-label="Emoji"
+            aria-expanded={pickerOpen}
+            onClick={() => setPickerOpen((v) => !v)}
+          >
+            😀
+          </button>
+          {pickerOpen && (
+            <div className="emoji-picker" role="menu" aria-label="Emoji picker">
+              {EMOJIS.map((e) => (
+                <button
+                  key={e}
+                  type="button"
+                  className="emoji-cell"
+                  role="menuitem"
+                  onClick={() => insertEmoji(e)}
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <input
+          ref={inputRef}
           className="field"
           type="text"
           maxLength={500}
