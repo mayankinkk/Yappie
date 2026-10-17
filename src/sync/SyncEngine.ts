@@ -42,12 +42,18 @@ export function computeDriftCorrection(
 export interface SyncEngineOptions {
   transport: Transport;
   player: PlayerAdapter;
-  getRole: () => { selfId: string; hostId: string; guestsCanControl: boolean };
+  getRole: () => {
+    selfId: string;
+    selfName?: string;
+    hostId: string;
+    guestsCanControl: boolean;
+    grantedTo?: string[];
+  };
   getVideoId: () => string | null;
   onLocalState: (s: { videoId: string | null; time: number; playing: boolean }) => void;
   onRemoteAction: (text: string) => void;
   onDenied: () => void;
-  onControlRequested: (name: string) => void;
+  onControlRequested: (name: string, senderId?: string) => void;
   onEnded: () => void;
 }
 
@@ -81,9 +87,10 @@ export class SyncEngine {
       snapshot: (p) => this.applySnapshot(p),
       "sync-request": () => this.respondToSyncRequest(),
       "control-request": (p) => {
-        const name = (p as { senderName?: string } | null)?.senderName || "Someone";
-        if (!this.inboundControlReq.allow(String(name))) return;
-        this.opts.onControlRequested(name);
+        const payload = p as { senderName?: string; senderId?: string } | null;
+        const name = payload?.senderName || "Someone";
+        if (!this.inboundControlReq.allow(String(payload?.senderId || name))) return;
+        this.opts.onControlRequested(name, payload?.senderId);
       },
     };
     for (const ev of EVENTS) transport.on(ev, handlers[ev]);
@@ -107,9 +114,10 @@ export class SyncEngine {
    */
   private isTrustedSender(senderId: string | undefined): boolean {
     if (!senderId) return false;
-    const { hostId, guestsCanControl } = this.opts.getRole();
+    const { hostId, guestsCanControl, grantedTo } = this.opts.getRole();
     if (guestsCanControl) return true;
-    return !!hostId && senderId === hostId;
+    if (!!hostId && senderId === hostId) return true;
+    return !!grantedTo?.includes(senderId);
   }
 
   getLocalRef(): PlaybackPayload {
@@ -117,14 +125,18 @@ export class SyncEngine {
   }
 
   canControl(): boolean {
-    const { selfId, hostId, guestsCanControl } = this.opts.getRole();
-    return selfId === hostId || guestsCanControl;
+    const { selfId, hostId, guestsCanControl, grantedTo } = this.opts.getRole();
+    return selfId === hostId || guestsCanControl || !!grantedTo?.includes(selfId);
   }
 
   private assertControl(): boolean {
     if (!this.canControl()) {
       this.opts.onDenied();
-      void this.opts.transport.send("control-request", { senderName: this.opts.getRole().selfId });
+      const { selfId, selfName } = this.opts.getRole();
+      void this.opts.transport.send("control-request", {
+        senderId: selfId,
+        senderName: selfName || "Guest",
+      });
       return false;
     }
     return true;

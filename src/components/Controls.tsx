@@ -15,9 +15,15 @@ export default function Controls({ player, playing }: Props) {
   const requestControl = useRoom((s) => s.requestControl);
   const hostId = useRoom((s) => s.hostId);
   const guestsCanControl = useRoom((s) => s.guestsCanControl);
+  const grantedTo = useRoom((s) => s.grantedTo);
+  const pendingControl = useRoom((s) => s.pendingControl);
+  const approveControl = useRoom((s) => s.approveControl);
+  const denyControl = useRoom((s) => s.denyControl);
   const videoId = useRoom((s) => s.videoId);
   const profile = useSession((s) => s.profile);
-  const canControl = !!profile && (profile.id === hostId || guestsCanControl);
+  const canControl =
+    !!profile && (profile.id === hostId || guestsCanControl || grantedTo.includes(profile.id));
+  const isHost = !!profile && profile.id === hostId;
 
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -72,7 +78,23 @@ export default function Controls({ player, playing }: Props) {
   const disabled = !videoId;
 
   return (
-    <div className="controls" ref={controlsRef}>
+    <>
+      {pendingControl && isHost && (
+        <div className="control-request" role="status">
+          <span className="cr-text">
+            <strong>{pendingControl.name}</strong> wants to control playback
+          </span>
+          <span className="cr-actions">
+            <button className="cr-btn approve" onClick={() => void approveControl()}>
+              Approve
+            </button>
+            <button className="cr-btn deny" onClick={denyControl}>
+              Deny
+            </button>
+          </span>
+        </div>
+      )}
+      <div className="controls" ref={controlsRef}>
       <button
         className="ctrl-btn play"
         title={playing ? "Pause (Space)" : "Play (Space)"}
@@ -124,6 +146,7 @@ export default function Controls({ player, playing }: Props) {
       <button className="ctrl-btn" title="Fullscreen" disabled={disabled} onClick={toggleFullscreen}>
         <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg>
       </button>
-    </div>
+      </div>
+    </>
   );
 }

@@ -92,6 +92,8 @@ interface RoomState {
   unread: number;
   participants: Participant[];
   members: MembershipRow[];
+  grantedTo: string[];
+  pendingControl: { fromId: string; name: string; ts: number } | null;
   floating: FloatingReaction[];
   toasts: ToastItem[];
 
@@ -103,6 +105,9 @@ interface RoomState {
   loadChat(): Promise<void>;
   moderate(userId: string, opts: { banned?: boolean; muteSeconds?: number }): Promise<void>;
   setHost(userId: string): Promise<void>;
+  approveControl(): Promise<void>;
+  denyControl(): void;
+  revokeControl(userId: string): Promise<void>;
 
   togglePlayback(): void;
   seekTo(time: number): void;
@@ -164,6 +169,7 @@ export const useRoom = create<RoomState>((set, get) => {
       guestsCanControl: row.guests_can_control,
       roomLocked: !!row.locked,
       videoId: row.video_id ?? null,
+      grantedTo: Array.isArray(row.granted_to) ? row.granted_to : [],
     };
     if (typeof row.queue_version === "number" && row.queue_version >= s.queueVersion) {
       next.queue = (row.queue || []).map(toQueueItem);
@@ -312,8 +318,10 @@ export const useRoom = create<RoomState>((set, get) => {
       },
       getRole: () => ({
         selfId: profile.id,
+        selfName: profile.name,
         hostId: get().hostId,
         guestsCanControl: get().guestsCanControl,
+        grantedTo: get().grantedTo,
       }),
       getVideoId: () => get().videoId,
       onLocalState: (s) => set({ videoId: s.videoId, playing: s.playing }),
@@ -322,8 +330,20 @@ export const useRoom = create<RoomState>((set, get) => {
         playSound("control");
       },
       onDenied: () => get().pushToast("Only the host can control playback", "error"),
-      onControlRequested: (name) => {
-        get().pushToast(`${name} is asking to control playback`);
+      onControlRequested: (name, senderId) => {
+        const clean = clampText(name || "Someone", 40);
+        get().pushToast(`${clean} is asking to control playback`);
+        const s = get();
+        if (selfProfile && s.hostId === selfProfile.id) {
+          const from = senderId
+            ? s.participants.find((p) => p.id === senderId)
+            : s.participants.find((p) => p.name === clean);
+          set({ pendingControl: { fromId: from?.id || senderId || "", name: clean, ts: Date.now() } });
+          setTimeout(() => {
+            const p = get().pendingControl;
+            if (p && Date.now() - p.ts >= 15_000) set({ pendingControl: null });
+          }, 15_500);
+        }
       },
       onEnded: handleEnded,
     });
@@ -517,6 +537,8 @@ export const useRoom = create<RoomState>((set, get) => {
     unread: 0,
     participants: [],
     members: [],
+    grantedTo: [],
+    pendingControl: null,
     floating: [],
     toasts: [],
 
@@ -571,6 +593,36 @@ export const useRoom = create<RoomState>((set, get) => {
       else get().pushToast("Only the host can transfer hosting", "error");
     },
 
+    async approveControl() {
+      const s = get();
+      const target = s.pendingControl?.fromId;
+      if (!s.code || !target) {
+        set({ pendingControl: null });
+        return;
+      }
+      const granted = Array.from(new Set([...s.grantedTo, target]));
+      const ok = await saveRoomSettings(s.code, { granted_to: granted });
+      if (ok) {
+        set({ pendingControl: null });
+        get().pushToast(`Granted playback control to ${s.pendingControl?.name ?? "guest"}`);
+      } else {
+        get().pushToast("Only the host can grant control", "error");
+      }
+    },
+
+    denyControl() {
+      set({ pendingControl: null });
+    },
+
+    async revokeControl(userId) {
+      const s = get();
+      if (!s.code) return;
+      const granted = s.grantedTo.filter((id) => id !== userId);
+      const ok = await saveRoomSettings(s.code, { granted_to: granted });
+      if (ok) get().pushToast("Revoked playback control");
+      else get().pushToast("Only the host can revoke control", "error");
+    },
+
     async createRoom(profile, password) {
       if (!isSupabaseConfigured()) {
         get().pushToast("Connect Supabase in settings first", "error");
@@ -615,6 +667,8 @@ export const useRoom = create<RoomState>((set, get) => {
         queue: joined.queue.map(toQueueItem),
         queueVersion: joined.queueVersion,
         videoId: joined.videoId,
+        grantedTo: joined.grantedTo || [],
+        pendingControl: null,
         playing: false,
         messages: [],
         unread: 0,
@@ -659,6 +713,8 @@ export const useRoom = create<RoomState>((set, get) => {
         unread: 0,
         participants: [],
         members: [],
+        grantedTo: [],
+        pendingControl: null,
         floating: [],
       });
       const url = new URL(location.href);

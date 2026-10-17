@@ -8,6 +8,7 @@ export interface RoomRow {
   queue: QueueRow[] | null;
   queue_version: number;
   video_id: string | null;
+  granted_to?: string[] | null;
   password_hash?: string | null;
 }
 
@@ -97,6 +98,7 @@ export interface JoinedRoom {
   queueVersion: number;
   videoId: string | null;
   requiresPassword: boolean;
+  grantedTo: string[];
 }
 
 export async function joinRoomRpc(
@@ -122,6 +124,7 @@ export async function joinRoomRpc(
     queueVersion: Number(row.p_queue_version) || 0,
     videoId: (row.p_video_id as string | null) || null,
     requiresPassword: !!row.p_password_required,
+    grantedTo: Array.isArray(row.p_granted_to) ? (row.p_granted_to as string[]) : [],
   };
 }
 
@@ -181,6 +184,7 @@ export async function saveRoomSettings(
     queue_version?: number;
     video_id?: string | null;
     host_id?: string;
+    granted_to?: string[];
   },
 ): Promise<boolean> {
   const supabase = getSupabase();

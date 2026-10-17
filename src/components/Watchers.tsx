@@ -9,8 +9,10 @@ export default function Watchers() {
   const participants = useRoom((s) => s.participants);
   const members = useRoom((s) => s.members);
   const hostId = useRoom((s) => s.hostId);
+  const grantedTo = useRoom((s) => s.grantedTo);
   const moderate = useRoom((s) => s.moderate);
   const setHost = useRoom((s) => s.setHost);
+  const revokeControl = useRoom((s) => s.revokeControl);
   const myId = useSession((s) => s.profile?.id);
   const isHost = !!myId && myId === hostId;
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -39,6 +41,7 @@ export default function Watchers() {
           const info = memberInfo(p.id);
           const muted = !!info?.muted_until && Date.parse(info.muted_until) > Date.now();
           const banned = !!info?.banned;
+          const granted = p.id !== hostId && grantedTo.includes(p.id);
           const canModerate = isHost && p.id !== myId;
           const open = canModerate && expanded === p.id;
           return (
@@ -54,6 +57,7 @@ export default function Watchers() {
                 <span className="name">
                   {p.id === myId ? `${p.name} (you)` : p.name}
                   {p.id === hostId && <span className="host-dot" title="Host">★</span>}
+                  {granted && <span className="member-dot" title="Has playback control">🎮</span>}
                   {muted && <span className="member-dot" title="Muted">🔇</span>}
                   {banned && <span className="member-dot" title="Banned">🚫</span>}
                 </span>
@@ -90,6 +94,17 @@ export default function Watchers() {
                   >
                     Make host
                   </button>
+                  {granted && (
+                    <button
+                      className="btn small ghost"
+                      onClick={() => {
+                        void revokeControl(p.id);
+                        setExpanded(null);
+                      }}
+                    >
+                      Revoke control
+                    </button>
+                  )}
                 </div>
               )}
             </div>

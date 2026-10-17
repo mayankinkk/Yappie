@@ -40,7 +40,8 @@ class FakeTransport implements Transport {
 function makeEngine(overrides: Partial<SyncEngineOptions> = {}) {
   const player = new FakePlayer();
   const transport = new FakeTransport();
-  let role = { selfId: "self", hostId: "self", guestsCanControl: false };
+  type Role = ReturnType<NonNullable<SyncEngineOptions["getRole"]>>;
+  let role: Role = { selfId: "self", selfName: "Self", hostId: "self", guestsCanControl: false };
   let videoId: string | null = null;
   const opts: SyncEngineOptions = {
     transport,
@@ -58,7 +59,7 @@ function makeEngine(overrides: Partial<SyncEngineOptions> = {}) {
   engine.start();
   return {
     engine, player, transport,
-    setRole: (r: typeof role) => { role = r; },
+    setRole: (r: Role) => { role = r; },
     setVideoId: (v: string | null) => { videoId = v; },
   };
 }
@@ -259,6 +260,58 @@ describe("SyncEngine sender validation", () => {
       senderId: "host", senderName: "Host", action: "seek", notify: false,
     } satisfies ControlPayload);
     expect(player.getTime()).toBeCloseTo(60, 0);
+  });
+
+  it("accepts control from a per-user granted guest while playback is host-locked", () => {
+    const { engine, player, setVideoId, setRole } = makeEngine();
+    setRole({ selfId: "host", hostId: "host", guestsCanControl: false, grantedTo: ["granted-guest"] });
+    setVideoId("abcdefghijk");
+    player.time = 10;
+    player.playing = true;
+    engine.applyControl({
+      videoId: "abcdefghijk", time: 42, playing: false, sentAt: Date.now(),
+      senderId: "granted-guest", senderName: "Granted", action: "seek", notify: false,
+    } satisfies ControlPayload);
+    expect(player.getTime()).toBeCloseTo(42, 0);
+  });
+
+  it("still drops control from a non-granted sender while host-locked", () => {
+    const { engine, player, setVideoId, setRole } = makeEngine();
+    setRole({ selfId: "host", hostId: "host", guestsCanControl: false, grantedTo: ["other"] });
+    setVideoId("abcdefghijk");
+    player.time = 10;
+    player.playing = true;
+    engine.applyControl({
+      videoId: "abcdefghijk", time: 99, playing: false, sentAt: Date.now(),
+      senderId: "not-granted", senderName: "Nope", action: "pause", notify: false,
+    } satisfies ControlPayload);
+    expect(player.isPlaying()).toBe(true);
+    expect(player.getTime()).toBe(10);
+  });
+});
+
+describe("SyncEngine control grants", () => {
+  it("granted guest can control while general guest control is off", () => {
+    const { engine, setRole } = makeEngine();
+    setRole({ selfId: "guest", hostId: "host", guestsCanControl: false, grantedTo: ["guest"] });
+    expect(engine.canControl()).toBe(true);
+  });
+
+  it("un-granted guest still cannot control", () => {
+    const { engine, setRole } = makeEngine();
+    setRole({ selfId: "guest", hostId: "host", guestsCanControl: false, grantedTo: ["someone-else"] });
+    expect(engine.canControl()).toBe(false);
+  });
+
+  it("control-request carries senderId for approval flow", () => {
+    const { transport, engine, setRole, setVideoId } = makeEngine();
+    setRole({ selfId: "guest", selfName: "Bob", hostId: "host", guestsCanControl: false });
+    setVideoId("abcdefghijk");
+    engine.localPlay();
+    const req = transport.sent.find((s) => s.event === "control-request");
+    expect(req).toBeTruthy();
+    expect((req?.payload as { senderId?: string }).senderId).toBe("guest");
+    expect((req?.payload as { senderName?: string }).senderName).toBe("Bob");
   });
 });
 
