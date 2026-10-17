@@ -46,7 +46,6 @@ export default function Room() {
       yt.destroy();
       host.innerHTML = "";
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attachPlayer]);
 
   function toggleSound() {
