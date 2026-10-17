@@ -24,8 +24,8 @@ You can also skip `.env.local` entirely — on first run the app shows a setup o
 
 1. Create a free project at [supabase.com](https://supabase.com)
 2. **Project Settings → API** → copy the Project URL and anon public key
-3. Anonymous sign-in must be enabled (it is by default under **Authentication → Providers → Anonymous**)
-4. **Apply the database migrations** — paste every file in [`supabase/migrations/`](supabase/migrations/) into the SQL editor in numeric order (0001 → 0004), or run `supabase db push`. The app does not work without them: rooms, membership, host authority, chat history, grants, and watch history live in Postgres.
+3. **Enable anonymous sign-in** — Authentication → Providers → Anonymous. It is **off by default** on new projects; the app cannot sign anyone in without it.
+4. **Apply the database migrations** — paste every file in [`supabase/migrations/`](supabase/migrations/) into the SQL editor in numeric order (0001 → 0006), or run `supabase db push` if you use the CLI. The app does not work without them: rooms, membership, host authority, chat history, grants, watch history, and the RLS helpers live in Postgres. (0005/0006 fix pgcrypto search-path and RLS recursion issues that bite on fresh projects.)
 5. *(Optional)* **Authentication → Providers → Google** — enable it (OAuth client ID/secret from Google Cloud Console) to light up "Continue with Google" on the landing page. Without it the button shows a clear error and everything else works.
 
 ## Voice chat (optional)

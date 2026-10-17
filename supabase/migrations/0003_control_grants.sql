@@ -6,7 +6,10 @@ alter table public.rooms
   add column if not exists granted_to uuid[] not null default '{}';
 
 -- join_room now returns the grant list so a rejoining guest restores control
--- immediately, not on the next host UPDATE.
+-- immediately, not on the next host UPDATE. (Postgres forbids changing a
+-- function's return type in place — drop the old signature first.)
+drop function if exists public.join_room(text, text, text);
+
 create or replace function public.join_room(
   p_code text,
   p_password text default null,
