@@ -391,6 +391,14 @@ a {
   min-height: 0;
 }
 
+.main.theater {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.main.theater .sidebar {
+  display: none;
+}
+
 @media (max-width: 980px) {
   body {
     overflow: auto;

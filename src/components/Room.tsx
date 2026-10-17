@@ -32,6 +32,7 @@ export default function Room() {
   const prevConn = useRef(connection);
   const [player, setPlayer] = useState<YouTubePlayer | null>(null);
   const [buffering, setBuffering] = useState(false);
+  const [theater, setTheater] = useState(() => localStorage.getItem("sofa.theater") === "1");
   const hostRef = useRef<HTMLDivElement>(null);
   const [sound, setSound] = useState(soundEnabled());
   const name = useSession((s) => s.profile?.name) || "";
@@ -87,6 +88,14 @@ export default function Room() {
     }
   }, [connection, pushToast]);
 
+  function toggleTheater() {
+    setTheater((v) => {
+      const next = !v;
+      localStorage.setItem("sofa.theater", next ? "1" : "0");
+      return next;
+    });
+  }
+
   function toggleSound() {
     const next = !sound;
     setSoundEnabled(next);
@@ -106,7 +115,7 @@ export default function Room() {
           You're offline — reconnecting when the network is back…
         </div>
       )}
-      <div className="main">
+      <div className={`main${theater ? " theater" : ""}`}>
         <section className="stage">
           <div className="player-wrap">
             <div ref={hostRef} className="player-host" />
@@ -134,7 +143,12 @@ export default function Room() {
             </div>
           </div>
 
-          <Controls player={player} playing={playing} />
+          <Controls
+            player={player}
+            playing={playing}
+            theater={theater}
+            onToggleTheater={toggleTheater}
+          />
 
           <div className="load-bar">
             <input

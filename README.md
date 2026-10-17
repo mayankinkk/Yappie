@@ -73,7 +73,7 @@ Set the env vars in your host's dashboard (`VITE_SUPABASE_URL`, `VITE_SUPABASE_A
 
 Each room is a Supabase Realtime channel. Playback state (video id, timestamp, playing) is broadcast on every play/pause/seek; every other client applies it, advancing the timestamp by elapsed time for late arrivals. Clients that drift more than 0.75s off the shared timeline re-seek every 5s. Durable room state (host, permissions, queue, membership, grants) lives in Postgres — see below. A **sync pill** under the player shows measured drift vs the host (green <0.5s, yellow <1.5s, red beyond), refreshed every 5s.
 
-**Keyboard shortcuts** (when focus isn't in a text field): `Space` play/pause · `←`/`→` seek 5s · `Shift+←`/`→` seek 30s · `F` fullscreen · `M` mute · `?` shortcut help. Without playback control these send an approval request to the host instead.
+**Keyboard shortcuts** (when focus isn't in a text field): `Space` play/pause · `←`/`→` seek 5s · `Shift+←`/`→` seek 30s · `F` fullscreen · `M` mute · `T` theater mode · `?` shortcut help. Without playback control these send an approval request to the host instead.
 
 ## Security model
 

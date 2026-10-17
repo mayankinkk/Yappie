@@ -7,9 +7,11 @@ import { formatTime, clamp } from "../lib/time";
 interface Props {
   player: YouTubePlayer | null;
   playing: boolean;
+  theater: boolean;
+  onToggleTheater: () => void;
 }
 
-export default function Controls({ player, playing }: Props) {
+export default function Controls({ player, playing, theater, onToggleTheater }: Props) {
   const togglePlayback = useRoom((s) => s.togglePlayback);
   const seekTo = useRoom((s) => s.seekTo);
   const requestControl = useRoom((s) => s.requestControl);
@@ -98,6 +100,10 @@ export default function Controls({ player, playing }: Props) {
         setMuted(next);
         player?.setMuted(next);
       }
+      if (e.code === "KeyT") {
+        e.preventDefault();
+        onToggleTheater();
+      }
       if (e.key === "?") {
         e.preventDefault();
         setShowHelp((v) => !v);
@@ -105,7 +111,7 @@ export default function Controls({ player, playing }: Props) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [togglePlayback, requestControl, seekTo, canControl, disabled, player, duration, muted]);
+  }, [togglePlayback, requestControl, seekTo, canControl, disabled, player, duration, muted, onToggleTheater]);
 
   function onSeekCommit() {
     setSeeking(false);
@@ -203,6 +209,20 @@ export default function Controls({ player, playing }: Props) {
         <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg>
       </button>
       <button
+        className="ctrl-btn"
+        title="Theater mode (T)"
+        aria-label="Theater mode"
+        aria-pressed={theater}
+        onClick={onToggleTheater}
+      >
+        <svg viewBox="0 0 24 24">
+          <path
+            fillRule="evenodd"
+            d="M3 5h4v14H3V5zm14 0h4v14h-4V5zM7 5h10v14H7V5zm2 2v10h6V7H9z"
+          />
+        </svg>
+      </button>
+      <button
         className="ctrl-btn help-btn"
         title="Keyboard shortcuts (?)"
         aria-label="Keyboard shortcuts"
@@ -264,6 +284,12 @@ export default function Controls({ player, playing }: Props) {
                   <kbd>M</kbd>
                 </span>
                 <span>Mute</span>
+              </li>
+              <li>
+                <span className="help-keys">
+                  <kbd>T</kbd>
+                </span>
+                <span>Theater mode</span>
               </li>
               <li>
                 <span className="help-keys">
