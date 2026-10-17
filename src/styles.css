@@ -30,6 +30,15 @@ body,
   height: 100%;
 }
 
+/* The app shell must be pinned to the viewport: without this, .screen and
+   the grid grow to content, body's overflow:hidden propagates to the
+   viewport (no wheel scroll, no scrollbar), and the sidebar chat falls
+   below the fold on short desktop windows with no way to reach it. */
+#root {
+  display: flex;
+  flex-direction: column;
+}
+
 body {
   background:
     radial-gradient(1100px 500px at 50% -180px, var(--bg-glow), transparent 70%),
@@ -331,6 +340,10 @@ a {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
+  /* Explicit row constraint: an implicit `auto` row sizes to content, which
+     lets the grid (and everything above it) outgrow the viewport while the
+     clipped chat form sits below the fold. */
+  grid-template-rows: minmax(0, 1fr);
   gap: 14px;
   padding: 14px 16px 16px;
   min-height: 0;
@@ -912,6 +925,20 @@ input[type="range"].seek:disabled {
   gap: 12px;
   min-height: 0;
   min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Desktop body is overflow:hidden (fixed app shell), so the sidebar is the
+   only scroll path when the card stack exceeds the window height. Upper
+   cards keep their natural size; the chat card absorbs leftover space, and
+   the sidebar scrolls to keep the chat form reachable on short viewports. */
+.sidebar > .card {
+  flex-shrink: 0;
+}
+
+.sidebar > .chat-card {
+  flex: 1 1 auto;
 }
 
 .card {
