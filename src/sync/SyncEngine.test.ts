@@ -327,6 +327,17 @@ describe("SyncEngine drift correction", () => {
     expect(Math.abs(player.getTime() - 53)).toBeLessThan(1);
   });
 
+  it("reports pre-correction drift for the health indicator", () => {
+    const { engine, player, setVideoId } = makeEngine();
+    setVideoId("abcdefghijk");
+    engine.applyLoadedState({ videoId: "abcdefghijk", time: 50, playing: true });
+    player.time = 55.5;
+    engine.tick(Date.now());
+    expect(engine.getLastDrift()).not.toBeNull();
+    expect(engine.getLastDrift()!).toBeGreaterThan(4);
+    expect(engine.getLastDrift()!).toBeLessThan(7);
+  });
+
   it("does nothing when paused", () => {
     const { engine, player, setVideoId } = makeEngine();
     setVideoId("abcdefghijk");

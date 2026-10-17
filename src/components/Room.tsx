@@ -18,6 +18,7 @@ export default function Room() {
   const videoId = useRoom((s) => s.videoId);
   const playing = useRoom((s) => s.playing);
   const connection = useRoom((s) => s.connection);
+  const drift = useRoom((s) => s.drift);
   const guestsCanControl = useRoom((s) => s.guestsCanControl);
   const attachPlayer = useRoom((s) => s.attachPlayer);
   const loadVideo = useRoom((s) => s.loadVideo);
@@ -128,6 +129,24 @@ export default function Room() {
                   : "Synced · paused"
                 : "Waiting for a video…"}
             </span>
+            {videoId && (
+              <span
+                className={`sync-pill ${
+                  drift === null
+                    ? "pending"
+                    : drift < 0.5
+                      ? "ok"
+                      : drift < 1.5
+                        ? "warn"
+                        : "bad"
+                }`}
+                title="Playback drift vs the host (checked every 5s)"
+              >
+                {drift === null
+                  ? "sync —"
+                  : `sync ±${drift < 10 ? drift.toFixed(1) : `${Math.floor(drift)}+`}s`}
+              </span>
+            )}
             {videoId && (
               <a href={watchUrl(videoId)} target="_blank" rel="noreferrer">
                 Open on YouTube

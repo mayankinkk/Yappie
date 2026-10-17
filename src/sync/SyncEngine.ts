@@ -62,6 +62,7 @@ const EVENTS = ["control", "snapshot", "sync-request", "control-request"] as con
 export class SyncEngine {
   private opts: SyncEngineOptions;
   private localRef: PlaybackPayload = { videoId: "", time: 0, playing: false, sentAt: 0 };
+  private lastDrift: number | null = null;
   private lastAppliedSentAt = 0;
   private applying = false;
   private applyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -363,8 +364,14 @@ export class SyncEngine {
 
   tick(now = nowMs()): void {
     if (!this.started || this.applying) return;
-    if (!this.localRef.playing) return;
     if (!this.opts.player.ready()) return;
+    if (this.localRef.sentAt) {
+      const expected = this.localRef.playing
+        ? computeExpectedTime(this.localRef, now)
+        : this.localRef.time;
+      this.lastDrift = Math.abs(this.opts.player.getTime() - expected);
+    }
+    if (!this.localRef.playing) return;
     if (!this.opts.player.isPlaying()) return;
     const actual = this.opts.player.getTime();
     const correction = computeDriftCorrection(this.localRef, actual, now);
@@ -376,6 +383,11 @@ export class SyncEngine {
     }, 700);
     this.opts.player.seek(correction);
     this.localRef = { ...this.localRef, time: correction, sentAt: now };
+  }
+
+  /** Seconds between our playback position and the host's expected position. */
+  getLastDrift(): number | null {
+    return this.lastDrift;
   }
 
   isApplyingRemote(): boolean {

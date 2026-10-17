@@ -94,6 +94,7 @@ interface RoomState {
   members: MembershipRow[];
   grantedTo: string[];
   pendingControl: { fromId: string; name: string; ts: number } | null;
+  drift: number | null;
   floating: FloatingReaction[];
   toasts: ToastItem[];
 
@@ -539,6 +540,7 @@ export const useRoom = create<RoomState>((set, get) => {
     members: [],
     grantedTo: [],
     pendingControl: null,
+    drift: null,
     floating: [],
     toasts: [],
 
@@ -682,7 +684,10 @@ export const useRoom = create<RoomState>((set, get) => {
       url.searchParams.set("room", code);
       history.replaceState(null, "", url);
       document.title = `Sofa · ${code}`;
-      driftTimer = setInterval(() => engine?.tick(), 5000);
+      driftTimer = setInterval(() => {
+        engine?.tick();
+        set({ drift: engine?.getLastDrift() ?? null });
+      }, 5000);
       void heartbeatRpc(code);
       heartbeatTimer = setInterval(() => void heartbeatRpc(code), HEARTBEAT_MS);
     },
@@ -715,6 +720,7 @@ export const useRoom = create<RoomState>((set, get) => {
         members: [],
         grantedTo: [],
         pendingControl: null,
+        drift: null,
         floating: [],
       });
       const url = new URL(location.href);

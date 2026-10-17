@@ -24,6 +24,7 @@ export default function Controls({ player, playing }: Props) {
   const canControl =
     !!profile && (profile.id === hostId || guestsCanControl || grantedTo.includes(profile.id));
   const isHost = !!profile && profile.id === hostId;
+  const disabled = !videoId;
 
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -51,16 +52,47 @@ export default function Controls({ player, playing }: Props) {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.code !== "Space") return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-      e.preventDefault();
-      if (canControl) togglePlayback();
-      else requestControl();
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      if (e.code === "Space") {
+        e.preventDefault();
+        if (canControl) togglePlayback();
+        else requestControl();
+        return;
+      }
+      if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
+        if (disabled) return;
+        e.preventDefault();
+        if (!canControl) {
+          requestControl();
+          return;
+        }
+        const step = e.shiftKey ? 30 : 5;
+        const current = player?.ready() ? player.getTime() : 0;
+        const max = duration > 0 ? duration : Number.MAX_SAFE_INTEGER;
+        const next = e.code === "ArrowRight" ? current + step : current - step;
+        seekTo(clamp(next, 0, max));
+        return;
+      }
+      if (e.code === "KeyF") {
+        if (disabled) return;
+        e.preventDefault();
+        toggleFullscreen();
+        return;
+      }
+      if (e.code === "KeyM") {
+        if (disabled) return;
+        e.preventDefault();
+        const next = !muted;
+        setMuted(next);
+        player?.setMuted(next);
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [togglePlayback, requestControl, canControl]);
+  }, [togglePlayback, requestControl, seekTo, canControl, disabled, player, duration, muted]);
 
   function onSeekCommit() {
     setSeeking(false);
@@ -74,8 +106,6 @@ export default function Controls({ player, playing }: Props) {
     if (document.fullscreenElement) void document.exitFullscreen();
     else void wrap?.requestFullscreen?.();
   }
-
-  const disabled = !videoId;
 
   return (
     <>
@@ -111,6 +141,7 @@ export default function Controls({ player, playing }: Props) {
         ref={sliderRef}
         className="seek"
         type="range"
+        title="Seek — ←/→ seek 5s, Shift+←/→ seek 30s"
         min={0}
         max={duration || 100}
         step={0.1}
@@ -129,7 +160,7 @@ export default function Controls({ player, playing }: Props) {
       </span>
       <button
         className="ctrl-btn"
-        title={muted ? "Unmute" : "Mute"}
+        title={muted ? "Unmute (M)" : "Mute (M)"}
         disabled={disabled}
         onClick={() => {
           const next = !muted;
@@ -143,7 +174,7 @@ export default function Controls({ player, playing }: Props) {
           <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z" /></svg>
         )}
       </button>
-      <button className="ctrl-btn" title="Fullscreen" disabled={disabled} onClick={toggleFullscreen}>
+      <button className="ctrl-btn" title="Fullscreen (F)" disabled={disabled} onClick={toggleFullscreen}>
         <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg>
       </button>
       </div>

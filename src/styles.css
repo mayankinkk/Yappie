@@ -538,6 +538,32 @@ a {
   background: #3a2f2f;
 }
 
+.sync-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border);
+  color: var(--text-dim, #9c948a);
+}
+
+.sync-pill.ok {
+  border-color: #3f8f5a;
+  color: #7fd8a0;
+}
+
+.sync-pill.warn {
+  border-color: #a8842c;
+  color: #f0c65a;
+}
+
+.sync-pill.bad {
+  border-color: #a84a4a;
+  color: #f08a8a;
+}
+
 .ctrl-btn {
   display: inline-flex;
   align-items: center;
