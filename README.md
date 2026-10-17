@@ -57,7 +57,7 @@ Static hosting, no server needed:
 - **Netlify**: `netlify deploy --prod` (config in `netlify.toml`)
 - **GitHub Pages**: `npm run build` then publish `dist/`
 
-Set the env vars in your host's dashboard (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, optional `VITE_LIVEKIT_URL`) so first-time visitors skip the setup overlay.
+Set the env vars in your host's dashboard (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, optional `VITE_LIVEKIT_URL`, optional `VITE_SENTRY_DSN` for error monitoring) so first-time visitors skip the setup overlay.
 
 ## How sync works
 

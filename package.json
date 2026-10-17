@@ -12,6 +12,7 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@sentry/react": "^11.8.0",
     "@supabase/supabase-js": "^2.49.4",
     "livekit-client": "^2.15.5",
     "react": "^19.1.0",

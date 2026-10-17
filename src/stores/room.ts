@@ -33,6 +33,7 @@ import {
 } from "../lib/rooms-api";
 import { ensureAuthed } from "./session";
 import { MinGap, RateLimiter } from "../lib/ratelimit";
+import { captureError } from "../lib/telemetry";
 
 const CHAT_TRIM = 200;
 const HEARTBEAT_MS = 20_000;
@@ -485,6 +486,7 @@ export const useRoom = create<RoomState>((set, get) => {
           }
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           set({ connection: "error" });
+          captureError(new Error(`realtime_${status}`), { room: code });
           if (!settled) {
             settled = true;
             reject(new Error(status));

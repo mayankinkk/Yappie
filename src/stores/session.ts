@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { Profile } from "../types";
 import { getSupabase, isSupabaseConfigured } from "../lib/supabase";
 import { nameHue, randomId } from "../lib/ids";
+import { setTelemetryUser } from "../lib/telemetry";
 
 const LS_PROFILE = "sofa.profile";
 
@@ -102,6 +103,7 @@ export const useSession = create<SessionState>((set, get) => ({
       const profile: Profile = { id, name: name || "Guest", color };
       persist(profile);
       set({ profile, initialized: true });
+      setTelemetryUser(id);
       return profile;
     })();
     return initPromise;
