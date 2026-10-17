@@ -29,6 +29,7 @@ interface SessionState {
   initialized: boolean;
   init(): Promise<Profile>;
   setName(name: string): void;
+  signInWithGoogle(): Promise<string | null>;
   ensureIdentity(): Promise<Profile>;
   ensureAuthed(): Promise<Profile | null>;
 }
@@ -77,7 +78,7 @@ export const useSession = create<SessionState>((set, get) => ({
     if (initPromise) return initPromise;
     initPromise = (async () => {
       const stored = readStored();
-      const name = stored?.name?.trim() || "";
+      let name = stored?.name?.trim() || "";
       let id = stored?.id || "";
       let color = typeof stored?.color === "number" ? stored.color : nameHue(name || "Guest");
 
@@ -85,12 +86,21 @@ export const useSession = create<SessionState>((set, get) => ({
         const supabase = getSupabase();
         if (supabase) {
           try {
-            const authCall = supabase.auth.signInAnonymously().catch(() => null);
-            const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500));
-            const result = await Promise.race([authCall, timeout]);
-            const user = result?.data?.user;
+            // Never clobber an existing session (e.g. Google sign-in) with a
+            // fresh anonymous one — only sign in anonymously when we're nobody.
+            const existing = await supabase.auth.getSession();
+            let user = existing.data.session?.user ?? null;
+            if (!user) {
+              const authCall = supabase.auth.signInAnonymously().catch(() => null);
+              const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500));
+              const result = await Promise.race([authCall, timeout]);
+              user = result?.data?.user ?? null;
+            }
             if (user) {
               id = user.id;
+              const meta = user.user_metadata as { full_name?: unknown; name?: unknown } | undefined;
+              const metaName = String(meta?.full_name || meta?.name || "").trim().slice(0, 24);
+              if (metaName && (!name || name === "Guest")) name = metaName;
               if (!name) color = nameHue(id);
             }
           } catch {
@@ -119,6 +129,21 @@ export const useSession = create<SessionState>((set, get) => ({
     };
     persist(profile);
     set({ profile });
+  },
+
+  async signInWithGoogle(): Promise<string | null> {
+    const supabase = getSupabase();
+    if (!supabase) return "Connect Supabase in settings first";
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: window.location.origin },
+      });
+      if (error) return "Google sign-in isn't enabled — turn it on in Supabase Auth settings";
+      return null;
+    } catch {
+      return "Couldn't reach the sign-in service";
+    }
   },
 
   async ensureIdentity(): Promise<Profile> {

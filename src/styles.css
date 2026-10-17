@@ -629,6 +629,18 @@ a {
   background: var(--panel-2);
 }
 
+.google-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.google-g {
+  font-weight: 700;
+  color: var(--accent);
+}
+
 .ctrl-btn {
   display: inline-flex;
   align-items: center;

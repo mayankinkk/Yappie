@@ -25,7 +25,8 @@ You can also skip `.env.local` entirely — on first run the app shows a setup o
 1. Create a free project at [supabase.com](https://supabase.com)
 2. **Project Settings → API** → copy the Project URL and anon public key
 3. Anonymous sign-in must be enabled (it is by default under **Authentication → Providers → Anonymous**)
-4. **Apply the database migrations** — paste [`supabase/migrations/0001_server_authority.sql`](supabase/migrations/0001_server_authority.sql) then [`0002_chat.sql`](supabase/migrations/0002_chat.sql) into the SQL editor (or `supabase db push` if you use the CLI). The app does not work without them: rooms, membership, host authority, and chat history live in Postgres.
+4. **Apply the database migrations** — paste every file in [`supabase/migrations/`](supabase/migrations/) into the SQL editor in numeric order (0001 → 0004), or run `supabase db push`. The app does not work without them: rooms, membership, host authority, chat history, grants, and watch history live in Postgres.
+5. *(Optional)* **Authentication → Providers → Google** — enable it (OAuth client ID/secret from Google Cloud Console) to light up "Continue with Google" on the landing page. Without it the button shows a clear error and everything else works.
 
 ## Voice chat (optional)
 
@@ -63,6 +64,8 @@ Static hosting, no server needed:
 - **Vercel**: `vercel deploy` (config in `vercel.json`)
 - **Netlify**: `netlify deploy --prod` (config in `netlify.toml`)
 - **GitHub Pages**: `npm run build` then publish `dist/`
+
+After you know your production URL, add `og:url` and `og:image` (absolute URLs — e.g. `/icons/icon-512.png` served from your domain) to `index.html` for richer link previews.
 
 Set the env vars in your host's dashboard (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, optional `VITE_LIVEKIT_URL`, optional `VITE_SENTRY_DSN` for error monitoring) so first-time visitors skip the setup overlay.
 
