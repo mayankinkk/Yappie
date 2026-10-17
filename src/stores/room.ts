@@ -25,6 +25,7 @@ import {
   joinRoomRpc,
   leaveRoomRpc,
   moderateMemberRpc,
+  deleteChatMessageRpc,
   saveRoomSettings,
   type ChatRow,
   type JoinedRoom,
@@ -128,6 +129,7 @@ interface RoomState {
   loadVideo(input: string): Promise<void>;
   ensureTitle(videoId: string): void;
   sendChat(text: string): void;
+  deleteChatMessage(id: string): Promise<void>;
   setTyping(active: boolean): void;
   react(emoji: string): void;
   addToQueue(input: string): Promise<void>;
@@ -437,6 +439,16 @@ export const useRoom = create<RoomState>((set, get) => {
         if (member && member.banned) return;
         if (!chatIn.allow(String(row.sender_id || "?"))) return;
         pushMessage(set, get, rowToChat(row), row.sender_id !== profile.id);
+      },
+    );
+    // Host moderation: message deleted server-side → drop it everywhere.
+    channel.on(
+      "postgres_changes",
+      { event: "DELETE", schema: "public", table: "chat_messages", filter: `room_code=eq.${code}` },
+      (payload) => {
+        const old = payload.old as { id?: string } | null;
+        if (!old?.id) return;
+        set((s) => ({ messages: s.messages.filter((m) => m.id !== old.id) }));
       },
     );
 
@@ -919,6 +931,22 @@ export const useRoom = create<RoomState>((set, get) => {
             get().pushToast("Message not sent", "error");
           }
         });
+    },
+
+    /**
+     * Host-only chat moderation. Optimistically drops the message locally;
+     * the server-side DELETE streams a realtime DELETE event to everyone else.
+     */
+    async deleteChatMessage(id) {
+      const s = get();
+      const profile = selfProfile;
+      if (!profile || !s.code || s.hostId !== profile.id) return;
+      set({ messages: s.messages.filter((m) => m.id !== id) });
+      try {
+        await deleteChatMessageRpc(s.code, id);
+      } catch {
+        get().pushToast("Couldn't delete the message", "error");
+      }
     },
 
     /**

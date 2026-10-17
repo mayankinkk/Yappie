@@ -182,6 +182,20 @@ export async function moderateMemberRpc(
   }
 }
 
+export async function deleteChatMessageRpc(code: string, messageId: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) throw new RoomError("config", "Connect Supabase first");
+  const { error } = await supabase.rpc("delete_chat_message", {
+    p_code: code,
+    p_message_id: messageId,
+  });
+  if (error) {
+    const mapped = mapError(rpcMsg(error));
+    if (mapped.code === "host") throw new RoomError("host", "Only the host can do that");
+    throw mapped;
+  }
+}
+
 export async function saveRoomSettings(
   code: string,
   settings: {

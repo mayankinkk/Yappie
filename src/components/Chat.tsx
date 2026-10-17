@@ -15,10 +15,13 @@ export default function Chat() {
   const messages = useRoom((s) => s.messages);
   const unread = useRoom((s) => s.unread);
   const sendChat = useRoom((s) => s.sendChat);
+  const deleteChatMessage = useRoom((s) => s.deleteChatMessage);
+  const hostId = useRoom((s) => s.hostId);
   const setTyping = useRoom((s) => s.setTyping);
   const typing = useRoom((s) => s.typing);
   const markChatRead = useRoom((s) => s.markChatRead);
   const myId = useSession((s) => s.profile?.id);
+  const isHost = !!myId && myId === hostId;
   const [text, setText] = useState("");
   const [tick, setTick] = useState(0);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -113,6 +116,17 @@ export default function Chat() {
                     {m.name}
                   </span>
                   <span className="msg-time">{formatClock(m.ts)}</span>
+                  {isHost && (
+                    <button
+                      type="button"
+                      className="msg-delete"
+                      title="Delete message"
+                      aria-label="Delete message"
+                      onClick={() => void deleteChatMessage(m.id)}
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
                 <div className="msg-text">{m.text}</div>
               </div>

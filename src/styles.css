@@ -1377,6 +1377,39 @@ input[type="range"].volume:disabled {
   margin-bottom: 2px;
 }
 
+.msg-delete {
+  margin-left: auto;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
+  line-height: 1;
+  color: var(--faint);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.msg:hover .msg-delete,
+.msg-delete:focus-visible {
+  opacity: 1;
+}
+
+.msg-delete:hover {
+  color: var(--red);
+  border-color: var(--border);
+  background: var(--panel-2);
+}
+
 .msg-name {
   font-size: 0.78rem;
   font-weight: 700;
