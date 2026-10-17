@@ -124,6 +124,7 @@ interface RoomState {
   addToQueue(input: string): Promise<void>;
   removeFromQueue(id: string): void;
   playFromQueue(id: string): void;
+  moveQueue(from: number, to: number): void;
   toggleGuestControls(): void;
   toggleRoomLock(): Promise<void>;
   requestControl(): void;
@@ -989,6 +990,24 @@ export const useRoom = create<RoomState>((set, get) => {
       set({ queue: s.queue.slice(idx + 1) });
       engine?.localLoad(item.videoId, true);
       recordWatched(item.videoId, item.title);
+      void publishSnapshot();
+    },
+
+    /**
+     * Host-only queue reorder (drag-and-drop). Mirrors the other host queue
+     * mutations: local set + publishSnapshot (version bump, RLS-gated UPDATE,
+     * broadcast to everyone).
+     */
+    moveQueue(from, to) {
+      const s = get();
+      const profile = selfProfile;
+      if (!profile || s.hostId !== profile.id) return;
+      if (from === to) return;
+      if (from < 0 || from >= s.queue.length || to < 0 || to >= s.queue.length) return;
+      const queue = s.queue.slice();
+      const [item] = queue.splice(from, 1);
+      queue.splice(to, 0, item);
+      set({ queue });
       void publishSnapshot();
     },
 

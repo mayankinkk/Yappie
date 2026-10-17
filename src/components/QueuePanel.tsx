@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useRoom, isHostNow } from "../stores/room";
 import { useSession } from "../stores/session";
 
@@ -6,9 +7,12 @@ export default function QueuePanel() {
   const removeFromQueue = useRoom((s) => s.removeFromQueue);
   const playFromQueue = useRoom((s) => s.playFromQueue);
   const addToQueue = useRoom((s) => s.addToQueue);
+  const moveQueue = useRoom((s) => s.moveQueue);
   const hostId = useRoom((s) => s.hostId);
   const myId = useSession((s) => s.profile?.id);
   const isHost = hostId === myId;
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
 
   return (
     <div className="card queue-card">
@@ -19,7 +23,38 @@ export default function QueuePanel() {
       <div className="queue-body">
         {queue.length === 0 && <div className="queue-empty">Queue is empty</div>}
         {queue.map((item, i) => (
-          <div key={item.id} className="queue-item">
+          <div
+            key={item.id}
+            className={`queue-item${dragIndex === i ? " dragging" : ""}${
+              overIndex === i && dragIndex !== null && dragIndex !== i ? " drop-target" : ""
+            }`}
+            draggable={isHost}
+            onDragStart={(e) => {
+              setDragIndex(i);
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData("text/plain", String(i));
+            }}
+            onDragOver={(e) => {
+              if (!isHost || dragIndex === null) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              setOverIndex(i);
+            }}
+            onDragLeave={() => {
+              if (overIndex === i) setOverIndex(null);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (!isHost || dragIndex === null) return;
+              moveQueue(dragIndex, i);
+              setDragIndex(null);
+              setOverIndex(null);
+            }}
+            onDragEnd={() => {
+              setDragIndex(null);
+              setOverIndex(null);
+            }}
+          >
             <span className="queue-index">{i + 1}</span>
             <img
               className="queue-thumb"

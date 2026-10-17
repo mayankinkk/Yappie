@@ -1263,6 +1263,18 @@ input[type="range"].volume:disabled {
   border: 1px solid var(--border-soft);
 }
 
+.queue-item[draggable="true"] {
+  cursor: grab;
+}
+
+.queue-item.dragging {
+  opacity: 0.45;
+}
+
+.queue-item.drop-target {
+  border-color: var(--accent);
+}
+
 .queue-index {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.75rem;
