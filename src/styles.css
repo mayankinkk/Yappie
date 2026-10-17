@@ -275,6 +275,48 @@ a {
   font-weight: 600;
 }
 
+.recent-rooms {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.recent-label {
+  font-size: 0.74rem;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 2px;
+}
+
+.recent-chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.recent-chip:hover:not(:disabled) {
+  background: #2f2a25;
+  border-color: var(--accent);
+}
+
+.recent-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .join-row .btn {
   padding: 11px 18px;
 }

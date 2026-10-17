@@ -13,6 +13,7 @@ import type {
 } from "../types";
 import { getSupabase, isSupabaseConfigured } from "../lib/supabase";
 import { extractVideoId, fetchVideoTitle } from "../lib/video-id";
+import { rememberRoom } from "../lib/recent";
 import { randomId } from "../lib/ids";
 import { playSound } from "../lib/sound";
 import { SyncEngine } from "../sync/SyncEngine";
@@ -743,6 +744,7 @@ export const useRoom = create<RoomState>((set, get) => {
       });
       selfProfile = p;
       await connect(code, p);
+      rememberRoom(code);
       const url = new URL(location.href);
       url.searchParams.set("room", code);
       history.replaceState(null, "", url);

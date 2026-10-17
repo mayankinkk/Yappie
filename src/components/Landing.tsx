@@ -3,6 +3,7 @@ import { useSession } from "../stores/session";
 import { useRoom } from "../stores/room";
 import { sanitizeCode } from "../lib/ids";
 import { isSupabaseConfigured } from "../lib/supabase";
+import { loadRecentRooms } from "../lib/recent";
 import { RoomError } from "../lib/rooms-api";
 import { SofaMark } from "../App";
 
@@ -28,6 +29,7 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
   const [passwordError, setPasswordError] = useState("");
   const [createProtected, setCreateProtected] = useState(false);
   const [roomPassword, setRoomPassword] = useState("");
+  const [recent] = useState(loadRecentRooms);
 
   useEffect(() => {
     const clean = sanitizeCode(askPasswordFor || "");
@@ -85,10 +87,9 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
     }
   }
 
-  async function handleJoin() {
+  async function doJoin(clean: string) {
     if (busy) return;
     if (!requireName() || !requireSetup()) return;
-    const clean = sanitizeCode(code);
     if (clean.length !== 6) {
       setShake((s) => s + 1);
       return;
@@ -104,6 +105,11 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleJoin() {
+    if (busy) return;
+    await doJoin(sanitizeCode(code));
   }
 
   return (
@@ -168,6 +174,25 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
             Join
           </button>
         </div>
+        {recent.length > 0 && (
+          <div className="recent-rooms" aria-label="Recent rooms">
+            <span className="recent-label">Recent</span>
+            {recent.map((r) => (
+              <button
+                key={r.code}
+                className="recent-chip"
+                title={`Rejoin room ${r.code}`}
+                disabled={busy}
+                onClick={() => {
+                  setCode(r.code);
+                  void doJoin(r.code);
+                }}
+              >
+                {r.code}
+              </button>
+            ))}
+          </div>
+        )}
         {joinPassword && (
           <div className="join-password">
             <input
