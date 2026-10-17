@@ -33,6 +33,7 @@ export default function Controls({ player, playing }: Props) {
     clamp(Number(localStorage.getItem("sofa.volume") ?? "100") || 0, 0, 100),
   );
   const [seeking, setSeeking] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const sliderRef = useRef<HTMLInputElement>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
 
@@ -96,6 +97,10 @@ export default function Controls({ player, playing }: Props) {
         const next = !muted;
         setMuted(next);
         player?.setMuted(next);
+      }
+      if (e.key === "?") {
+        e.preventDefault();
+        setShowHelp((v) => !v);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -197,7 +202,79 @@ export default function Controls({ player, playing }: Props) {
       <button className="ctrl-btn" title="Fullscreen (F)" disabled={disabled} onClick={toggleFullscreen}>
         <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg>
       </button>
+      <button
+        className="ctrl-btn help-btn"
+        title="Keyboard shortcuts (?)"
+        aria-label="Keyboard shortcuts"
+        onClick={() => setShowHelp((v) => !v)}
+      >
+        ?
+      </button>
       </div>
+      {showHelp && (
+        <div
+          className="help-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Keyboard shortcuts"
+          onClick={() => setShowHelp(false)}
+        >
+          <div className="help-card" onClick={(e) => e.stopPropagation()}>
+            <div className="help-head">
+              <span>Keyboard shortcuts</span>
+              <button
+                className="ctrl-btn"
+                title="Close"
+                aria-label="Close"
+                onClick={() => setShowHelp(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <ul className="help-list">
+              <li>
+                <span className="help-keys">
+                  <kbd>Space</kbd>
+                </span>
+                <span>Play / pause (or ask for control)</span>
+              </li>
+              <li>
+                <span className="help-keys">
+                  <kbd>←</kbd>
+                  <kbd>→</kbd>
+                </span>
+                <span>Seek 5s</span>
+              </li>
+              <li>
+                <span className="help-keys">
+                  <kbd>Shift</kbd> <span className="help-plus">+</span> <kbd>←</kbd>
+                  <span className="help-plus">/</span>
+                  <kbd>→</kbd>
+                </span>
+                <span>Seek 30s</span>
+              </li>
+              <li>
+                <span className="help-keys">
+                  <kbd>F</kbd>
+                </span>
+                <span>Fullscreen</span>
+              </li>
+              <li>
+                <span className="help-keys">
+                  <kbd>M</kbd>
+                </span>
+                <span>Mute</span>
+              </li>
+              <li>
+                <span className="help-keys">
+                  <kbd>?</kbd>
+                </span>
+                <span>Show / hide this help</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      )}
     </>
   );
 }

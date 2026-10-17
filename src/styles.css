@@ -749,6 +749,80 @@ a {
   cursor: not-allowed;
 }
 
+.ctrl-btn.help-btn {
+  font-weight: 750;
+  font-size: 0.95rem;
+}
+
+.help-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 70;
+  padding: 20px;
+}
+
+.help-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  min-width: 300px;
+  max-width: 92vw;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+
+.help-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+.help-list {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.help-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.help-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  min-width: 108px;
+}
+
+.help-plus {
+  color: var(--faint);
+  font-size: 0.78rem;
+}
+
+.help-list kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.74rem;
+  font-weight: 650;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  box-shadow: 0 1px 0 var(--border);
+}
+
 .time-label {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.8rem;
