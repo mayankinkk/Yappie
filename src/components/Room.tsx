@@ -24,6 +24,9 @@ export default function Room() {
   const attachPlayer = useRoom((s) => s.attachPlayer);
   const loadVideo = useRoom((s) => s.loadVideo);
   const floating = useRoom((s) => s.floating);
+  const titles = useRoom((s) => s.titles);
+  const ensureTitle = useRoom((s) => s.ensureTitle);
+  const nowTitle = videoId ? (titles[videoId] ?? null) : null;
   const [player, setPlayer] = useState<YouTubePlayer | null>(null);
   const [buffering, setBuffering] = useState(false);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -49,6 +52,10 @@ export default function Room() {
       host.innerHTML = "";
     };
   }, [attachPlayer]);
+
+  useEffect(() => {
+    if (videoId) ensureTitle(videoId);
+  }, [videoId, ensureTitle]);
 
   function toggleSound() {
     const next = !sound;
@@ -123,6 +130,11 @@ export default function Room() {
           </div>
 
           <div className="stage-meta">
+            {videoId && nowTitle && (
+              <span className="now-title" title={nowTitle}>
+                {nowTitle}
+              </span>
+            )}
             <span>
               {videoId
                 ? playing

@@ -21,6 +21,17 @@ export default function QueuePanel() {
         {queue.map((item, i) => (
           <div key={item.id} className="queue-item">
             <span className="queue-index">{i + 1}</span>
+            <img
+              className="queue-thumb"
+              src={`https://i.ytimg.com/vi/${item.videoId}/mqdefault.jpg`}
+              alt=""
+              loading="lazy"
+              width={52}
+              height={39}
+              onError={(e) => {
+                e.currentTarget.style.visibility = "hidden";
+              }}
+            />
             <div className="queue-info">
               <div className="queue-title">{item.title || item.videoId}</div>
               <div className="queue-meta">

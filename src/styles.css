@@ -602,7 +602,7 @@ a {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   padding: 6px 8px;
@@ -612,6 +612,16 @@ a {
   color: var(--text);
   text-align: left;
   cursor: pointer;
+}
+
+.watched-thumb {
+  width: 40px;
+  height: 30px;
+  object-fit: cover;
+  border-radius: 5px;
+  flex: none;
+  background: var(--panel-2);
+  border: 1px solid var(--border-soft);
 }
 
 .watched-main:hover {
@@ -826,6 +836,16 @@ input[type="range"].volume:disabled {
 
 .stage-meta a:hover {
   text-decoration: underline;
+}
+
+.now-title {
+  flex: 1 1 180px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .conn-pill {
@@ -1105,6 +1125,16 @@ input[type="range"].volume:disabled {
   background: var(--panel-2);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
+}
+
+.queue-thumb {
+  width: 52px;
+  height: 39px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex: none;
+  background: var(--panel);
+  border: 1px solid var(--border-soft);
 }
 
 .queue-index {

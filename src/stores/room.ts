@@ -91,6 +91,7 @@ interface RoomState {
   playing: boolean;
   queue: QueueItem[];
   watched: WatchedEntry[];
+  titles: Record<string, string>;
   messages: ChatMessage[];
   unread: number;
   participants: Participant[];
@@ -116,6 +117,7 @@ interface RoomState {
   togglePlayback(): void;
   seekTo(time: number): void;
   loadVideo(input: string): Promise<void>;
+  ensureTitle(videoId: string): void;
   sendChat(text: string): void;
   react(emoji: string): void;
   addToQueue(input: string): Promise<void>;
@@ -133,6 +135,8 @@ interface RoomState {
 function clampText(v: unknown, max: number): string {
   return typeof v === "string" ? v.slice(0, max) : "";
 }
+
+const titleInFlight = new Set<string>();
 
 function pushMessage(
   set: (partial: Partial<RoomState>) => void,
@@ -197,6 +201,28 @@ export const useRoom = create<RoomState>((set, get) => {
     ].slice(0, WATCHED_MAX);
     set({ watched });
     void saveRoomSettings(s.code, { watched });
+  }
+
+  /**
+   * Per-videoId YouTube title cache (oEmbed, fetched at most once per id).
+   * Seeds from the queue/watch history before hitting the network so the
+   * now-playing header can render instantly when the title is already known.
+   */
+  function ensureTitle(videoId: string): void {
+    if (!videoId || get().titles[videoId]) return;
+    const known =
+      get().queue.find((q) => q.videoId === videoId)?.title ||
+      get().watched.find((w) => w.videoId === videoId)?.title;
+    if (known) {
+      set((s) => ({ titles: { ...s.titles, [videoId]: known } }));
+      return;
+    }
+    if (titleInFlight.has(videoId)) return;
+    titleInFlight.add(videoId);
+    void fetchVideoTitle(videoId).then((title) => {
+      titleInFlight.delete(videoId);
+      if (title) set((s) => ({ titles: { ...s.titles, [videoId]: title } }));
+    });
   }
 
   /**
@@ -556,6 +582,7 @@ export const useRoom = create<RoomState>((set, get) => {
     playing: false,
     queue: [],
     watched: [],
+    titles: {},
     messages: [],
     unread: 0,
     participants: [],
@@ -706,6 +733,7 @@ export const useRoom = create<RoomState>((set, get) => {
         grantedTo: joined.grantedTo || [],
         pendingControl: null,
         watched,
+        titles: {},
         playing: false,
         messages: [],
         unread: 0,
@@ -788,6 +816,8 @@ export const useRoom = create<RoomState>((set, get) => {
       if (!get().videoId) return;
       engine?.localSeek(time);
     },
+
+    ensureTitle,
 
     async loadVideo(input) {
       const id = extractVideoId(input);

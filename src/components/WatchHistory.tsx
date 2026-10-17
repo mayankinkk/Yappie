@@ -35,6 +35,17 @@ export default function WatchHistory() {
               title={canControlNow() ? "Play again" : "Ask to play — you're a guest"}
               onClick={() => void loadVideo(entry.videoId)}
             >
+              <img
+                className="watched-thumb"
+                src={`https://i.ytimg.com/vi/${entry.videoId}/mqdefault.jpg`}
+                alt=""
+                loading="lazy"
+                width={40}
+                height={30}
+                onError={(e) => {
+                  e.currentTarget.style.visibility = "hidden";
+                }}
+              />
               <span className="watched-title">{entry.title || entry.videoId}</span>
               <span className="watched-time">{relTime(entry.at)}</span>
             </button>
