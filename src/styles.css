@@ -1410,6 +1410,75 @@ input[type="range"].volume:disabled {
   background: var(--panel-2);
 }
 
+.reactions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  min-height: 0;
+}
+
+.reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  font-size: 0.72rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.reaction-chip.mine {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.reaction-chip:hover {
+  border-color: var(--muted);
+}
+
+.reaction-count {
+  color: var(--muted);
+  font-weight: 650;
+  font-size: 0.68rem;
+}
+
+.reaction-add {
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.msg:hover .reaction-add,
+.reaction-add:focus-within {
+  opacity: 1;
+}
+
+.reaction-quick {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s, transform 0.12s;
+}
+
+.reaction-quick:hover {
+  background: var(--panel-2);
+  border-color: var(--border-soft);
+  transform: scale(1.12);
+}
+
 .msg-name {
   font-size: 0.78rem;
   font-weight: 700;

@@ -18,6 +18,7 @@ export interface ChatMessage {
   color: number;
   text: string;
   ts: number;
+  reactions: Record<string, string[]>;
 }
 
 export interface QueueItem {

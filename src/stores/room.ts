@@ -26,6 +26,7 @@ import {
   leaveRoomRpc,
   moderateMemberRpc,
   deleteChatMessageRpc,
+  toggleChatReactionRpc,
   saveRoomSettings,
   type ChatRow,
   type JoinedRoom,
@@ -70,6 +71,15 @@ function rowToChat(row: ChatRow): ChatMessage {
     color: typeof row.color === "number" ? row.color : 30,
     text: clampText(row.text, 500),
     ts: Date.parse(row.created_at) || Date.now(),
+    reactions:
+      row.reactions && typeof row.reactions === "object"
+        ? Object.fromEntries(
+            Object.entries(row.reactions).map(([emoji, ids]) => [
+              emoji,
+              Array.isArray(ids) ? ids.map(String) : [],
+            ]),
+          )
+        : {},
   };
 }
 
@@ -130,6 +140,7 @@ interface RoomState {
   ensureTitle(videoId: string): void;
   sendChat(text: string): void;
   deleteChatMessage(id: string): Promise<void>;
+  reactToMessage(messageId: string, emoji: string): Promise<void>;
   setTyping(active: boolean): void;
   react(emoji: string): void;
   addToQueue(input: string): Promise<void>;
@@ -449,6 +460,20 @@ export const useRoom = create<RoomState>((set, get) => {
         const old = payload.old as { id?: string } | null;
         if (!old?.id) return;
         set((s) => ({ messages: s.messages.filter((m) => m.id !== old.id) }));
+      },
+    );
+    // Reaction toggles arrive as row updates (only reactions ever change).
+    channel.on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "chat_messages", filter: `room_code=eq.${code}` },
+      (payload) => {
+        const row = payload.new as ChatRow | null;
+        if (!row?.id) return;
+        const reactions =
+          row.reactions && typeof row.reactions === "object" ? row.reactions : {};
+        set((s) => ({
+          messages: s.messages.map((m) => (m.id === row.id ? { ...m, reactions } : m)),
+        }));
       },
     );
 
@@ -907,6 +932,7 @@ export const useRoom = create<RoomState>((set, get) => {
         color: profile.color,
         text: text.trim().slice(0, 500),
         ts: Date.now(),
+        reactions: {},
       };
       void supabase
         .from("chat_messages")
@@ -946,6 +972,27 @@ export const useRoom = create<RoomState>((set, get) => {
         await deleteChatMessageRpc(s.code, id);
       } catch {
         get().pushToast("Couldn't delete the message", "error");
+      }
+    },
+
+    /**
+     * Toggle own reaction on a chat message. The RPC returns the message's
+     * full post-toggle reactions map, which we apply locally; other members
+     * get the same state via the chat_messages UPDATE event.
+     */
+    async reactToMessage(messageId, emoji) {
+      const s = get();
+      const profile = selfProfile;
+      const clean = emoji.slice(0, 8);
+      if (!profile || !s.code || !clean) return;
+      if (!reactionOut.allow(`msg-${profile.id}`)) return;
+      try {
+        const reactions = await toggleChatReactionRpc(s.code, messageId, clean);
+        set((state) => ({
+          messages: state.messages.map((m) => (m.id === messageId ? { ...m, reactions } : m)),
+        }));
+      } catch {
+        /* not_found (deleted meanwhile) or not_member — drop silently */
       }
     },
 

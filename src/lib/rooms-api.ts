@@ -47,6 +47,7 @@ export interface ChatRow {
   color: number;
   text: string;
   created_at: string;
+  reactions?: Record<string, string[]> | null;
 }
 
 export class RoomError extends Error {
@@ -194,6 +195,22 @@ export async function deleteChatMessageRpc(code: string, messageId: string): Pro
     if (mapped.code === "host") throw new RoomError("host", "Only the host can do that");
     throw mapped;
   }
+}
+
+export async function toggleChatReactionRpc(
+  code: string,
+  messageId: string,
+  emoji: string,
+): Promise<Record<string, string[]>> {
+  const supabase = getSupabase();
+  if (!supabase) throw new RoomError("config", "Connect Supabase first");
+  const { data, error } = await supabase.rpc("toggle_chat_reaction", {
+    p_code: code,
+    p_message_id: messageId,
+    p_emoji: emoji,
+  });
+  if (error) throw mapError(rpcMsg(error));
+  return (data ?? {}) as Record<string, string[]>;
 }
 
 export async function saveRoomSettings(

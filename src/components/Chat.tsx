@@ -11,11 +11,14 @@ const EMOJIS = [
   "🎬", "🍿", "🎧", "🎸", "🐶", "🐱", "🌍", "🚀",
 ];
 
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥"];
+
 export default function Chat() {
   const messages = useRoom((s) => s.messages);
   const unread = useRoom((s) => s.unread);
   const sendChat = useRoom((s) => s.sendChat);
   const deleteChatMessage = useRoom((s) => s.deleteChatMessage);
+  const reactToMessage = useRoom((s) => s.reactToMessage);
   const hostId = useRoom((s) => s.hostId);
   const setTyping = useRoom((s) => s.setTyping);
   const typing = useRoom((s) => s.typing);
@@ -129,6 +132,35 @@ export default function Chat() {
                   )}
                 </div>
                 <div className="msg-text">{m.text}</div>
+                <div className="reactions">
+                  {Object.entries(m.reactions)
+                    .filter(([, ids]) => ids.length > 0)
+                    .map(([emoji, ids]) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        className={`reaction-chip${myId && ids.includes(myId) ? " mine" : ""}`}
+                        title="Toggle reaction"
+                        onClick={() => void reactToMessage(m.id, emoji)}
+                      >
+                        <span className="reaction-emoji">{emoji}</span>
+                        <span className="reaction-count">{ids.length}</span>
+                      </button>
+                    ))}
+                  <span className="reaction-add">
+                    {QUICK_REACTIONS.map((e) => (
+                      <button
+                        key={e}
+                        type="button"
+                        className="reaction-quick"
+                        title={`React with ${e}`}
+                        onClick={() => void reactToMessage(m.id, e)}
+                      >
+                        {e}
+                      </button>
+                    ))}
+                  </span>
+                </div>
               </div>
             </div>
           );
