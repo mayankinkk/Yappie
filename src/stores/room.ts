@@ -78,8 +78,15 @@ let playerAdapter: PlayerAdapter | null = null;
 let channelUnsubscribe: (() => void) | null = null;
 let driftTimer: ReturnType<typeof setInterval> | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let presenceChannel: { track: (p: Record<string, unknown>) => Promise<string> } | null = null;
+let presenceJoinedAt = 0;
+let typingFlag = false;
+let typingHeartbeat: ReturnType<typeof setInterval> | null = null;
 let selfProfile: Profile | null = null;
 let claimInFlight = false;
+
+/** How long a peer's "typing" state stays visible without a heartbeat refresh. */
+const TYPING_TTL = 4_000;
 
 interface RoomState {
   code: string | null;
@@ -102,6 +109,7 @@ interface RoomState {
   drift: number | null;
   floating: FloatingReaction[];
   toasts: ToastItem[];
+  typing: Record<string, { name: string; at: number }>;
 
   createRoom(profile: Profile, password?: string | null): Promise<void>;
   joinRoom(code: string, profile: Profile, password?: string | null): Promise<void>;
@@ -120,6 +128,7 @@ interface RoomState {
   loadVideo(input: string): Promise<void>;
   ensureTitle(videoId: string): void;
   sendChat(text: string): void;
+  setTyping(active: boolean): void;
   react(emoji: string): void;
   addToQueue(input: string): Promise<void>;
   removeFromQueue(id: string): void;
@@ -337,9 +346,11 @@ export const useRoom = create<RoomState>((set, get) => {
 
     selfProfile = profile;
     set({ connection: "connecting" });
+    presenceJoinedAt = Date.now();
     const channel = supabase.channel(`sofa-v2-${code}`, {
       config: { presence: { key: profile.id } },
     });
+    presenceChannel = channel;
 
     const t: Transport = {
       async send(event, payload) {
@@ -495,9 +506,21 @@ export const useRoom = create<RoomState>((set, get) => {
     channel.on("presence", { event: "sync" }, () => {
       const state = channel.presenceState();
       const list: Participant[] = [];
+      const typingMap: Record<string, { name: string; at: number }> = {};
+      const now = Date.now();
       for (const key of Object.keys(state)) {
-        const p = state[key][0] as unknown as { name?: string; color?: number; joinedAt?: number } | undefined;
+        const p = state[key][0] as unknown as
+          | { name?: string; color?: number; joinedAt?: number; typingAt?: number }
+          | undefined;
         if (!p) continue;
+        if (
+          typeof p.typingAt === "number" &&
+          p.typingAt > 0 &&
+          now - p.typingAt < TYPING_TTL &&
+          key !== profile.id
+        ) {
+          typingMap[key] = { name: p.name || "Guest", at: p.typingAt };
+        }
         list.push({
           id: key,
           name: p.name || "Guest",
@@ -505,6 +528,7 @@ export const useRoom = create<RoomState>((set, get) => {
           joinedAt: p.joinedAt || Date.now(),
         });
       }
+      set({ typing: typingMap });
       const prev = get().participants;
       const prevIds = new Set(prev.map((x) => x.id));
       const prevNames = new Map(prev.map((x) => [x.id, x.name]));
@@ -545,7 +569,7 @@ export const useRoom = create<RoomState>((set, get) => {
           void channel.track({
             name: profile.name,
             color: profile.color,
-            joinedAt: Date.now(),
+            joinedAt: presenceJoinedAt,
           });
           void get().loadMembers();
           void get().loadChat();
@@ -594,6 +618,7 @@ export const useRoom = create<RoomState>((set, get) => {
     drift: null,
     floating: [],
     toasts: [],
+    typing: {},
 
     async loadMembers() {
       const s = get();
@@ -742,6 +767,7 @@ export const useRoom = create<RoomState>((set, get) => {
         participants: [],
         members: [],
         floating: [],
+        typing: {},
       });
       selfProfile = p;
       await connect(code, p);
@@ -765,6 +791,11 @@ export const useRoom = create<RoomState>((set, get) => {
       driftTimer = null;
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       heartbeatTimer = null;
+      if (typingHeartbeat) clearInterval(typingHeartbeat);
+      typingHeartbeat = null;
+      typingFlag = false;
+      presenceChannel = null;
+      presenceJoinedAt = 0;
       channelUnsubscribe?.();
       channelUnsubscribe = null;
       engine?.destroy();
@@ -789,6 +820,7 @@ export const useRoom = create<RoomState>((set, get) => {
         pendingControl: null,
         drift: null,
         floating: [],
+        typing: {},
       });
       const url = new URL(location.href);
       url.searchParams.delete("room");
@@ -887,6 +919,41 @@ export const useRoom = create<RoomState>((set, get) => {
             get().pushToast("Message not sent", "error");
           }
         });
+    },
+
+    /**
+     * Publishes "I'm typing" through presence metadata. Re-track happens only
+     * on idle->typing / typing->idle transitions (keystrokes don't churn
+     * presence); while active, a 2s heartbeat refreshes typingAt so peers'
+     * TTL doesn't expire mid-sentence.
+     */
+    setTyping(active) {
+      if (!selfProfile || !get().code || !presenceChannel) return;
+      if (typingFlag === active) return;
+      typingFlag = active;
+      const payload = () => ({
+        name: selfProfile!.name,
+        color: selfProfile!.color,
+        joinedAt: presenceJoinedAt,
+        typingAt: active ? Date.now() : 0,
+      });
+      void presenceChannel.track(payload());
+      if (active) {
+        if (!typingHeartbeat) {
+          typingHeartbeat = setInterval(() => {
+            if (!typingFlag || !selfProfile || !presenceChannel) return;
+            void presenceChannel.track({
+              name: selfProfile.name,
+              color: selfProfile.color,
+              joinedAt: presenceJoinedAt,
+              typingAt: Date.now(),
+            });
+          }, 2000);
+        }
+      } else if (typingHeartbeat) {
+        clearInterval(typingHeartbeat);
+        typingHeartbeat = null;
+      }
     },
 
     react(emoji) {
