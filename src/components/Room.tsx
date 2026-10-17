@@ -7,6 +7,7 @@ import Controls from "./Controls";
 import Chat from "./Chat";
 import Watchers from "./Watchers";
 import QueuePanel from "./QueuePanel";
+import WatchHistory from "./WatchHistory";
 import ReactionsBar from "./ReactionsBar";
 import VoiceBar from "./VoiceBar";
 import { watchUrl } from "../lib/video-id";
@@ -183,6 +184,7 @@ export default function Room() {
         <aside className="sidebar">
           <Watchers />
           <QueuePanel />
+          <WatchHistory />
           <Chat />
         </aside>
       </div>

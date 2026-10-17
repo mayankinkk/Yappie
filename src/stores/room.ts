@@ -30,6 +30,7 @@ import {
   type MembershipRow,
   type QueueRow,
   type RoomRow,
+  type WatchedEntry,
 } from "../lib/rooms-api";
 import { ensureAuthed } from "./session";
 import { MinGap, RateLimiter } from "../lib/ratelimit";
@@ -38,6 +39,7 @@ import { captureError } from "../lib/telemetry";
 const CHAT_TRIM = 200;
 const HEARTBEAT_MS = 20_000;
 const QUEUE_MAX = 50;
+const WATCHED_MAX = 30;
 const MUTE_DEFAULT_SECONDS = 300;
 
 // Sender-side budgets: drop our own excess before it hits the network.
@@ -88,6 +90,7 @@ interface RoomState {
   videoId: string | null;
   playing: boolean;
   queue: QueueItem[];
+  watched: WatchedEntry[];
   messages: ChatMessage[];
   unread: number;
   participants: Participant[];
@@ -181,6 +184,22 @@ export const useRoom = create<RoomState>((set, get) => {
   }
 
   /**
+   * Host-only session watch history. Deduped against the most recent entry;
+   * capped at WATCHED_MAX and persisted through the host-gated rooms UPDATE.
+   */
+  function recordWatched(videoId: string, title?: string | null): void {
+    const s = get();
+    if (!s.code || !selfProfile || s.hostId !== selfProfile.id) return;
+    if (s.watched[0]?.videoId === videoId) return;
+    const watched: WatchedEntry[] = [
+      { videoId, title: title ? clampText(title, 200) : null, at: Date.now() },
+      ...s.watched,
+    ].slice(0, WATCHED_MAX);
+    set({ watched });
+    void saveRoomSettings(s.code, { watched });
+  }
+
+  /**
    * Host-only persistence of room settings/queue. The UPDATE itself is RLS-gated
    * to host_id in Postgres — a modified client fails here with 0 rows affected.
    * Broadcast snapshot still goes out so everyone gets playback time immediately.
@@ -256,6 +275,7 @@ export const useRoom = create<RoomState>((set, get) => {
     if (!next || !engine) return;
     set({ queue: s.queue.slice(1) });
     engine.localLoad(next.videoId, true);
+    recordWatched(next.videoId, next.title);
     get().pushToast(`Up next: ${next.title || "video"}`);
     void publishSnapshot();
   }
@@ -534,6 +554,7 @@ export const useRoom = create<RoomState>((set, get) => {
     videoId: null,
     playing: false,
     queue: [],
+    watched: [],
     messages: [],
     unread: 0,
     participants: [],
@@ -660,6 +681,18 @@ export const useRoom = create<RoomState>((set, get) => {
         throw new RoomError(err.code, err.message, true);
       }
 
+      // Watch history lives on the rooms row (members can SELECT it).
+      let watched: WatchedEntry[] = [];
+      try {
+        const supabase = getSupabase();
+        const res = supabase
+          ? await supabase.from("rooms").select("watched").eq("code", code).maybeSingle()
+          : null;
+        if (Array.isArray(res?.data?.watched)) watched = res.data.watched as WatchedEntry[];
+      } catch {
+        /* history is non-essential */
+      }
+
       set({
         code,
         connection: "connecting",
@@ -671,6 +704,7 @@ export const useRoom = create<RoomState>((set, get) => {
         videoId: joined.videoId,
         grantedTo: joined.grantedTo || [],
         pendingControl: null,
+        watched,
         playing: false,
         messages: [],
         unread: 0,
@@ -714,6 +748,7 @@ export const useRoom = create<RoomState>((set, get) => {
         videoId: null,
         playing: false,
         queue: [],
+        watched: [],
         messages: [],
         unread: 0,
         participants: [],
@@ -769,6 +804,7 @@ export const useRoom = create<RoomState>((set, get) => {
       engine?.localLoad(id, true);
       if (selfProfile?.id === s.hostId && s.code) {
         void saveRoomSettings(s.code, { video_id: id });
+        void fetchVideoTitle(id).then((title) => recordWatched(id, title));
       }
     },
 
@@ -908,7 +944,10 @@ export const useRoom = create<RoomState>((set, get) => {
       if (!profile) return;
       if (s.hostId !== profile.id) {
         get().pushToast("Only the host can jump the queue", "error");
-        void transport?.send("control-request", { senderName: profile.name });
+        void transport?.send("control-request", {
+          senderId: profile.id,
+          senderName: profile.name,
+        });
         return;
       }
       const idx = s.queue.findIndex((q) => q.id === id);
@@ -916,6 +955,7 @@ export const useRoom = create<RoomState>((set, get) => {
       const item = s.queue[idx];
       set({ queue: s.queue.slice(idx + 1) });
       engine?.localLoad(item.videoId, true);
+      recordWatched(item.videoId, item.title);
       void publishSnapshot();
     },
 
@@ -945,7 +985,7 @@ export const useRoom = create<RoomState>((set, get) => {
     requestControl() {
       const profile = selfProfile;
       if (!profile) return;
-      void transport?.send("control-request", { senderName: profile.name });
+      void transport?.send("control-request", { senderId: profile.id, senderName: profile.name });
       get().pushToast("Asked the host for control");
     },
 

@@ -1,5 +1,11 @@
 import { getSupabase } from "./supabase";
 
+export interface WatchedEntry {
+  videoId: string;
+  title?: string | null;
+  at: number;
+}
+
 export interface RoomRow {
   code: string;
   host_id: string;
@@ -9,6 +15,7 @@ export interface RoomRow {
   queue_version: number;
   video_id: string | null;
   granted_to?: string[] | null;
+  watched?: WatchedEntry[] | null;
   password_hash?: string | null;
 }
 
@@ -185,6 +192,7 @@ export async function saveRoomSettings(
     video_id?: string | null;
     host_id?: string;
     granted_to?: string[];
+    watched?: WatchedEntry[];
   },
 ): Promise<boolean> {
   const supabase = getSupabase();
