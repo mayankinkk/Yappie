@@ -1,0 +1,38 @@
+Sofa: overview
+Updated: after the production rewrite.
+
+What it is: a free, browser-based watch party app (think Rave/Teleparty for YouTube). You create a room, friends join with a code or invite link, and everyone watches the same moment together — with chat, reactions, a shared queue, and optional voice chat.
+
+Why YouTube: it's the one big video source you can legally embed and control with an official API. Netflix and Prime are locked behind DRM, so they're out for a web app like this (the Teleparty-style route for those is a browser extension where everyone uses their own account).
+
+Architecture (current):
+- React 19 + TypeScript + Vite (the old single index.html prototype was replaced)
+- YouTube IFrame API with custom host-side controls (native controls off, so every play/pause/seek is captured and broadcast)
+- Supabase Realtime channels for room sync, presence, chat, reactions, queue commands
+- Supabase anonymous auth for stable guest identity (name + avatar color, persisted locally)
+- Optional voice chat via LiveKit Cloud; JWTs minted by a Supabase Edge Function (supabase/functions/livekit-token)
+- PWA: installable, offline shell via a small service worker
+- SyncEngine is framework-agnostic and unit-tested (vitest, 20 tests)
+
+Features:
+- Create a room or join with a code / invite link (?room=CODE)
+- Synced play, pause, seek; late joiners caught up automatically; drift correction every 5s
+- Host-only playback by default; host can unlock guest control; guests can ask for control
+- Shared "Up next" queue — anyone adds, host plays; auto-advance when a video ends
+- Live chat with unread badge + notification sounds (mutable)
+- Emoji reactions floating over the video
+- Who's-watching list with host badge; join/leave notifications + sounds
+- Host migration: if the host leaves, the longest-present member takes over
+- Voice chat (LiveKit): mic toggle, speaking indicators — hidden unless configured
+
+How sync works: each room is a Supabase Realtime channel. Playback state (video id, timestamp, playing, sender clock) is broadcast on every control action; receivers apply it, advancing by elapsed time for late arrivals. Clients >0.75s off the shared timeline re-seek every 5s. The host owns the room snapshot (queue, permissions, host identity) and re-broadcasts on change and on joiner sync-requests.
+
+Deploy: static hosting (Vercel/Netlify configs included). No backend database. Env vars: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, optional VITE_LIVEKIT_URL — or paste Supabase keys in the first-run setup overlay.
+
+Commands: npm run dev / npm test / npm run build / npm run preview. See README.md for full setup, LiveKit voice setup, and deploy steps.
+
+Known limits / next ideas:
+- Untested with two live clients + real Supabase keys (needs a friend and your own project)
+- Chat history isn't persisted (no database by design) — new joiners start with an empty chat
+- No accounts beyond anonymous sessions; email/OAuth login is an upgrade path
+- Later maybe: room settings (autoplay, quality), a Chrome extension for Netflix/Prime with each person on their own subscription
