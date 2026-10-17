@@ -848,6 +848,16 @@ input[type="range"].volume:disabled {
   color: var(--text);
 }
 
+.offline-banner {
+  background: #7f1d1d;
+  color: #fecaca;
+  text-align: center;
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 7px 12px;
+  flex: none;
+}
+
 .conn-pill {
   font-size: 0.72rem;
   font-weight: 650;

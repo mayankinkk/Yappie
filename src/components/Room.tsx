@@ -26,7 +26,10 @@ export default function Room() {
   const floating = useRoom((s) => s.floating);
   const titles = useRoom((s) => s.titles);
   const ensureTitle = useRoom((s) => s.ensureTitle);
+  const pushToast = useRoom((s) => s.pushToast);
   const nowTitle = videoId ? (titles[videoId] ?? null) : null;
+  const [offline, setOffline] = useState(() => !navigator.onLine);
+  const prevConn = useRef(connection);
   const [player, setPlayer] = useState<YouTubePlayer | null>(null);
   const [buffering, setBuffering] = useState(false);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -57,6 +60,33 @@ export default function Room() {
     if (videoId) ensureTitle(videoId);
   }, [videoId, ensureTitle]);
 
+  useEffect(() => {
+    const goOffline = () => {
+      setOffline(true);
+      pushToast("You're offline — playback may drift", "error");
+    };
+    const goOnline = () => {
+      setOffline(false);
+      pushToast("Back online");
+    };
+    window.addEventListener("offline", goOffline);
+    window.addEventListener("online", goOnline);
+    return () => {
+      window.removeEventListener("offline", goOffline);
+      window.removeEventListener("online", goOnline);
+    };
+  }, [pushToast]);
+
+  useEffect(() => {
+    const prev = prevConn.current;
+    prevConn.current = connection;
+    if (connection === "error" && prev === "connected") {
+      pushToast("Connection lost — retrying…", "error");
+    } else if (connection === "connected" && prev === "error") {
+      pushToast("Reconnected");
+    }
+  }, [connection, pushToast]);
+
   function toggleSound() {
     const next = !sound;
     setSoundEnabled(next);
@@ -71,6 +101,11 @@ export default function Room() {
   return (
     <div className="screen room-screen">
       <RoomHeader />
+      {offline && (
+        <div className="offline-banner" role="alert">
+          You're offline — reconnecting when the network is back…
+        </div>
+      )}
       <div className="main">
         <section className="stage">
           <div className="player-wrap">
