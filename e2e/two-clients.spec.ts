@@ -104,7 +104,7 @@ test.describe("two clients", () => {
 
       // --- Invite-only lock: host locks room, fresh context can't join
       await host.getByRole("button", { name: "Lock room" }).click();
-      await expect(host.locator("button", { hasText: "Room locked" })).toBeVisible();
+      await expect(host.getByRole("button", { name: "Room locked", exact: true })).toBeVisible();
       const outsiderCtx = await browser.newContext();
       const outsider = await outsiderCtx.newPage();
       try {
