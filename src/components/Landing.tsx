@@ -3,6 +3,7 @@ import { useSession } from "../stores/session";
 import { useRoom } from "../stores/room";
 import { sanitizeCode } from "../lib/ids";
 import { isSupabaseConfigured } from "../lib/supabase";
+import { RoomError } from "../lib/rooms-api";
 import { SofaMark } from "../App";
 
 interface Props {
@@ -45,8 +46,8 @@ export default function Landing({ onNeedSetup }: Props) {
     setBusy(true);
     try {
       await createRoom(profile!);
-    } catch {
-      pushToast("Couldn't create the room", "error");
+    } catch (e) {
+      if (!(e instanceof RoomError)) pushToast("Couldn't create the room", "error");
     } finally {
       setBusy(false);
     }
@@ -63,8 +64,8 @@ export default function Landing({ onNeedSetup }: Props) {
     setBusy(true);
     try {
       await joinRoom(clean, profile!);
-    } catch {
-      pushToast("Couldn't join the room", "error");
+    } catch (e) {
+      if (!(e instanceof RoomError)) pushToast("Couldn't join the room", "error");
     } finally {
       setBusy(false);
     }

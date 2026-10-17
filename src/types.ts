@@ -44,6 +44,7 @@ export interface ControlPayload extends PlaybackPayload {
 }
 
 export interface RoomSnapshot extends PlaybackPayload {
+  senderId: string;
   hostId: string;
   guestsCanControl: boolean;
   queue: QueueItem[];

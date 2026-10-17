@@ -13,24 +13,42 @@ import type {
 } from "../types";
 import { getSupabase, isSupabaseConfigured } from "../lib/supabase";
 import { extractVideoId, fetchVideoTitle } from "../lib/video-id";
-import { randomCode, randomId } from "../lib/ids";
+import { randomId } from "../lib/ids";
 import { playSound } from "../lib/sound";
 import { SyncEngine } from "../sync/SyncEngine";
+import {
+  RoomError,
+  claimHostRpc,
+  createRoomRpc,
+  heartbeatRpc,
+  joinRoomRpc,
+  leaveRoomRpc,
+  saveRoomSettings,
+  type JoinedRoom,
+  type MembershipRow,
+  type QueueRow,
+  type RoomRow,
+} from "../lib/rooms-api";
+import { ensureAuthed } from "./session";
 
 const CHAT_TRIM = 200;
+const HEARTBEAT_MS = 20_000;
 
 let transport: Transport | null = null;
 let engine: SyncEngine | null = null;
 let playerAdapter: PlayerAdapter | null = null;
 let channelUnsubscribe: (() => void) | null = null;
 let driftTimer: ReturnType<typeof setInterval> | null = null;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let selfProfile: Profile | null = null;
+let claimInFlight = false;
 
 interface RoomState {
   code: string | null;
   connection: "idle" | "connecting" | "connected" | "error";
   hostId: string;
   guestsCanControl: boolean;
+  roomLocked: boolean;
   queueVersion: number;
   videoId: string | null;
   playing: boolean;
@@ -41,8 +59,8 @@ interface RoomState {
   floating: FloatingReaction[];
   toasts: ToastItem[];
 
-  createRoom(profile: Profile): Promise<void>;
-  joinRoom(code: string, profile: Profile, opts?: { creator?: boolean }): Promise<void>;
+  createRoom(profile: Profile, password?: string | null): Promise<void>;
+  joinRoom(code: string, profile: Profile, password?: string | null): Promise<void>;
   leaveRoom(): void;
   attachPlayer(adapter: PlayerAdapter): void;
 
@@ -55,11 +73,16 @@ interface RoomState {
   removeFromQueue(id: string): void;
   playFromQueue(id: string): void;
   toggleGuestControls(): void;
+  toggleRoomLock(): Promise<void>;
   requestControl(): void;
   markChatRead(): void;
   pushToast(text: string, kind?: ToastItem["kind"]): void;
   dismissToast(id: string): void;
   getProfile(): Profile | null;
+}
+
+function clampText(v: unknown, max: number): string {
+  return typeof v === "string" ? v.slice(0, max) : "";
 }
 
 function pushMessage(
@@ -74,11 +97,71 @@ function pushMessage(
   if (incoming) playSound("message");
 }
 
+function toQueueItem(row: QueueRow): QueueItem {
+  return {
+    id: clampText(row.id, 64) || randomId(),
+    videoId: clampText(row.videoId, 32),
+    title: row.title ? clampText(row.title, 200) : null,
+    addedBy: clampText(row.addedBy, 64),
+    addedByName: clampText(row.addedByName, 40),
+    addedAt: typeof row.addedAt === "number" ? row.addedAt : Date.now(),
+  };
+}
+
+// Best-effort membership close when the tab goes away (crash path is claim_host()).
+function handlePageHide(): void {
+  const code = useRoom.getState().code;
+  if (code) void leaveRoomRpc(code);
+}
+if (typeof window !== "undefined") window.addEventListener("pagehide", handlePageHide);
+
 export const useRoom = create<RoomState>((set, get) => {
-  function publishSnapshot(): void {
+  /** Server-authoritative room row → local state (RLS-backed; only ever the real host writes it). */
+  function applyRoomRow(row: RoomRow): void {
+    const s = get();
+    const next: Partial<RoomState> = {
+      hostId: row.host_id,
+      guestsCanControl: row.guests_can_control,
+      roomLocked: !!row.locked,
+      videoId: row.video_id ?? null,
+    };
+    if (typeof row.queue_version === "number" && row.queue_version >= s.queueVersion) {
+      next.queue = (row.queue || []).map(toQueueItem);
+      next.queueVersion = row.queue_version;
+    }
+    set(next);
+    if (row.video_id !== s.videoId) engine?.requestSync();
+  }
+
+  /**
+   * Host-only persistence of room settings/queue. The UPDATE itself is RLS-gated
+   * to host_id in Postgres — a modified client fails here with 0 rows affected.
+   * Broadcast snapshot still goes out so everyone gets playback time immediately.
+   */
+  async function publishSnapshot(): Promise<void> {
     const s = get();
     if (!engine || !s.code || s.hostId !== selfProfile?.id) return;
     const version = s.queueVersion + 1;
+    const ok = await saveRoomSettings(s.code, {
+      queue: s.queue as unknown as QueueRow[],
+      queue_version: version,
+      guests_can_control: s.guestsCanControl,
+      locked: s.roomLocked,
+      video_id: s.videoId,
+    });
+    if (!ok) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { data } = await supabase
+          .from("rooms")
+          .select("*")
+          .eq("code", s.code)
+          .maybeSingle();
+        if (data) applyRoomRow(data as RoomRow);
+      }
+      get().pushToast("Only the host can change the room", "error");
+      return;
+    }
     set({ queueVersion: version });
     engine.sendSnapshot({
       hostId: s.hostId,
@@ -89,34 +172,33 @@ export const useRoom = create<RoomState>((set, get) => {
   }
 
   function applySnapshot(payload: RoomSnapshot): void {
-    set({
-      hostId: payload.hostId,
-      guestsCanControl: payload.guestsCanControl,
-      queue: payload.queue || [],
-      queueVersion: payload.version,
-      videoId: payload.videoId || null,
-      playing: payload.playing,
-    });
+    const s = get();
+    if (!payload || typeof payload.sentAt !== "number") return;
+    // Settings (queue/permissions/host) only ever come from Postgres rows now;
+    // broadcasts carry playback state and must come from the server-known host.
+    if (s.hostId && payload.senderId !== s.hostId) return;
+    set({ videoId: payload.videoId || null, playing: payload.playing });
   }
 
   function handleQueueAdd(item: QueueItem): void {
     const s = get();
     if (selfProfile?.id !== s.hostId) return;
+    if (!item.videoId || !/^[\w-]{11}$/.test(item.videoId)) return;
     if (s.queue.some((q) => q.videoId === item.videoId)) return;
     set({ queue: [...s.queue, item] });
-    publishSnapshot();
+    void publishSnapshot();
   }
 
   function handleQueueRemove(payload: { id?: string; by?: string }): void {
     const s = get();
     if (selfProfile?.id !== s.hostId) return;
-    const id = payload.id;
+    const id = typeof payload.id === "string" ? payload.id : "";
     if (!id) return;
     const item = s.queue.find((q) => q.id === id);
     if (!item) return;
     if (payload.by && payload.by !== item.addedBy && payload.by !== s.hostId) return;
     set({ queue: s.queue.filter((q) => q.id !== id) });
-    publishSnapshot();
+    void publishSnapshot();
   }
 
   function handleEnded(): void {
@@ -127,7 +209,30 @@ export const useRoom = create<RoomState>((set, get) => {
     set({ queue: s.queue.slice(1) });
     engine.localLoad(next.videoId, true);
     get().pushToast(`Up next: ${next.title || "video"}`);
-    publishSnapshot();
+    void publishSnapshot();
+  }
+
+  /**
+   * Deterministic, server-checked host handoff. Fires when presence says the
+   * host is gone; Postgres decides whether the claim is legal (host stale +
+   * caller is the senior online member) and notifies everyone via the rooms row.
+   */
+  async function attemptClaim(): Promise<void> {
+    const s = get();
+    if (!s.code || !selfProfile || s.hostId === selfProfile.id) return;
+    if (claimInFlight) return;
+    if (s.participants.length === 0) return;
+    if (s.participants.some((p) => p.id === s.hostId)) return;
+    claimInFlight = true;
+    try {
+      const won = await claimHostRpc(s.code);
+      if (!won && get().hostId !== selfProfile.id) {
+        const stillGone = !get().participants.some((p) => p.id === get().hostId);
+        if (stillGone && get().code) setTimeout(() => void attemptClaim(), 6000);
+      }
+    } finally {
+      claimInFlight = false;
+    }
   }
 
   function connect(code: string, profile: Profile): Promise<void> {
@@ -197,18 +302,69 @@ export const useRoom = create<RoomState>((set, get) => {
     t.on("chat", (payload) => {
       const p = payload as ChatMessage | null;
       if (!p || p.senderId === profile.id) return;
-      pushMessage(set, get, { ...p, id: p.id || randomId() }, true);
+      pushMessage(
+        set,
+        get,
+        {
+          id: clampText(p.id, 64) || randomId(),
+          senderId: clampText(p.senderId, 64),
+          name: clampText(p.name, 40) || "Guest",
+          color: typeof p.color === "number" ? p.color : 30,
+          text: clampText(p.text, 500),
+          ts: typeof p.ts === "number" ? p.ts : Date.now(),
+        },
+        true,
+      );
     });
 
     t.on("reaction", (payload) => {
       const p = payload as ReactionEvent | null;
       if (!p || p.senderId === profile.id) return;
-      addFloating(set, get, p);
+      addFloating(set, get, {
+        id: clampText(p.id, 64) || randomId(),
+        senderId: clampText(p.senderId, 64),
+        name: clampText(p.name, 40),
+        emoji: clampText(p.emoji, 8),
+        ts: typeof p.ts === "number" ? p.ts : Date.now(),
+      });
       playSound("reaction");
     });
 
-    t.on("queue-add", (payload) => handleQueueAdd(payload as QueueItem));
+    t.on("queue-add", (payload) => {
+      const p = payload as QueueItem | null;
+      if (!p) return;
+      handleQueueAdd({
+        id: clampText(p.id, 64) || randomId(),
+        videoId: clampText(p.videoId, 32),
+        title: p.title ? clampText(p.title, 200) : null,
+        addedBy: clampText(p.addedBy, 64),
+        addedByName: clampText(p.addedByName, 40),
+        addedAt: typeof p.addedAt === "number" ? p.addedAt : Date.now(),
+      });
+    });
     t.on("queue-remove", (payload) => handleQueueRemove(payload as { id?: string; by?: string }));
+
+    // Server state: host_id, permissions, queue, bans — everything durable.
+    channel.on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "rooms", filter: `code=eq.${code}` },
+      (payload) => {
+        const row = payload.new as RoomRow | null;
+        if (row?.code === code) applyRoomRow(row);
+      },
+    );
+    channel.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "room_members", filter: `room_code=eq.${code}` },
+      (payload) => {
+        const row = payload.new as MembershipRow | null;
+        if (!row || row.user_id !== profile.id) return;
+        if (row.banned) {
+          get().pushToast("You were banned from this room", "error");
+          setTimeout(() => get().leaveRoom(), 500);
+        }
+      },
+    );
 
     channel.on("presence", { event: "sync" }, () => {
       const state = channel.presenceState();
@@ -240,20 +396,16 @@ export const useRoom = create<RoomState>((set, get) => {
         }
       }
 
-      const current = get();
-      const ids = list.map((x) => x.id).sort();
-      if (current.hostId && ids.length > 0 && !ids.includes(current.hostId)) {
-        const decider = ids[0];
-        if (decider === profile.id) {
-          set({ hostId: profile.id });
-          setTimeout(() => publishSnapshot(), 100);
-          get().pushToast("You're the host now");
-        }
-      }
       if (!list.some((x) => x.id === profile.id)) {
         list.push({ id: profile.id, name: profile.name, color: profile.color, joinedAt: Date.now() });
       }
       set({ participants: list });
+
+      // Host missing from presence → let Postgres arbitrate the handoff.
+      const current = get();
+      if (current.hostId && current.hostId !== profile.id && !list.some((x) => x.id === current.hostId)) {
+        setTimeout(() => void attemptClaim(), 3000);
+      }
     });
 
     return new Promise((resolve, reject) => {
@@ -294,6 +446,7 @@ export const useRoom = create<RoomState>((set, get) => {
     connection: "idle",
     hostId: "",
     guestsCanControl: true,
+    roomLocked: false,
     queueVersion: 0,
     videoId: null,
     playing: false,
@@ -304,44 +457,74 @@ export const useRoom = create<RoomState>((set, get) => {
     floating: [],
     toasts: [],
 
-    async createRoom(profile) {
-      const code = randomCode();
-      get().pushToast(`Room ${code} created`);
-      await get().joinRoom(code, profile, { creator: true });
-    },
-
-    async joinRoom(code, profile, opts) {
+    async createRoom(profile, password) {
       if (!isSupabaseConfigured()) {
         get().pushToast("Connect Supabase in settings first", "error");
-        throw new Error("not configured");
+        throw new RoomError("config", "Connect Supabase first", true);
       }
+      const p = (await ensureAuthed()) || profile;
+      let code: string;
+      try {
+        code = await createRoomRpc(password ?? null, p.name);
+      } catch (e) {
+        const err = e instanceof RoomError ? e : new RoomError("unknown", "Couldn't create the room");
+        get().pushToast(err.message, "error");
+        throw new RoomError(err.code, err.message, true);
+      }
+      get().pushToast(`Room ${code} created`);
+      await get().joinRoom(code, p, password ?? null);
+    },
+
+    async joinRoom(code, profile, password) {
+      if (!isSupabaseConfigured()) {
+        get().pushToast("Connect Supabase in settings first", "error");
+        throw new RoomError("config", "Connect Supabase first", true);
+      }
+      const p = (await ensureAuthed()) || profile;
       get().leaveRoom();
-      const creator = !!opts?.creator;
+
+      let joined: JoinedRoom;
+      try {
+        joined = await joinRoomRpc(code, password ?? null, p.name);
+      } catch (e) {
+        const err = e instanceof RoomError ? e : new RoomError("unknown", "Couldn't join the room");
+        get().pushToast(err.message, "error");
+        throw new RoomError(err.code, err.message, true);
+      }
+
       set({
         code,
         connection: "connecting",
-        hostId: creator ? profile.id : "",
-        guestsCanControl: creator,
-        queue: [],
+        hostId: joined.hostId,
+        guestsCanControl: joined.guestsCanControl,
+        roomLocked: joined.locked,
+        queue: joined.queue.map(toQueueItem),
+        queueVersion: joined.queueVersion,
+        videoId: joined.videoId,
+        playing: false,
         messages: [],
         unread: 0,
         participants: [],
-        videoId: null,
-        playing: false,
-        queueVersion: 0,
+        floating: [],
       });
-      selfProfile = profile;
-      await connect(code, profile);
+      selfProfile = p;
+      await connect(code, p);
       const url = new URL(location.href);
       url.searchParams.set("room", code);
       history.replaceState(null, "", url);
       document.title = `Sofa · ${code}`;
       driftTimer = setInterval(() => engine?.tick(), 5000);
+      void heartbeatRpc(code);
+      heartbeatTimer = setInterval(() => void heartbeatRpc(code), HEARTBEAT_MS);
     },
 
     leaveRoom() {
+      const code = get().code;
+      if (code) void leaveRoomRpc(code);
       if (driftTimer) clearInterval(driftTimer);
       driftTimer = null;
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
       channelUnsubscribe?.();
       channelUnsubscribe = null;
       engine?.destroy();
@@ -353,6 +536,7 @@ export const useRoom = create<RoomState>((set, get) => {
         code: null,
         connection: "idle",
         hostId: "",
+        roomLocked: false,
         videoId: null,
         playing: false,
         queue: [],
@@ -405,6 +589,9 @@ export const useRoom = create<RoomState>((set, get) => {
         return;
       }
       engine?.localLoad(id, true);
+      if (selfProfile?.id === s.hostId && s.code) {
+        void saveRoomSettings(s.code, { video_id: id });
+      }
     },
 
     sendChat(text) {
@@ -415,7 +602,7 @@ export const useRoom = create<RoomState>((set, get) => {
         senderId: profile.id,
         name: profile.name,
         color: profile.color,
-        text: text.trim(),
+        text: text.trim().slice(0, 500),
         ts: Date.now(),
       };
       void transport.send("chat", msg);
@@ -429,7 +616,7 @@ export const useRoom = create<RoomState>((set, get) => {
         id: randomId(),
         senderId: profile.id,
         name: profile.name,
-        emoji,
+        emoji: emoji.slice(0, 8),
         ts: Date.now(),
       };
       void transport.send("reaction", event);
@@ -459,7 +646,7 @@ export const useRoom = create<RoomState>((set, get) => {
       };
       if (s.hostId === profile.id) {
         set({ queue: [...s.queue, item] });
-        publishSnapshot();
+        void publishSnapshot();
         get().pushToast("Added to queue");
       } else {
         void transport.send("queue-add", item);
@@ -471,7 +658,7 @@ export const useRoom = create<RoomState>((set, get) => {
       const existing = state.queue.find((q) => q.id === item.id);
       if (existing) {
         set({ queue: state.queue.map((q) => (q.id === item.id ? { ...q, title } : q)) });
-        if (state.hostId === profile.id) publishSnapshot();
+        if (state.hostId === profile.id) void publishSnapshot();
       }
     },
 
@@ -488,7 +675,7 @@ export const useRoom = create<RoomState>((set, get) => {
       }
       if (s.hostId === profile.id) {
         set({ queue: s.queue.filter((q) => q.id !== id) });
-        publishSnapshot();
+        void publishSnapshot();
       } else {
         void transport.send("queue-remove", { id, by: profile.id });
       }
@@ -508,7 +695,7 @@ export const useRoom = create<RoomState>((set, get) => {
       const item = s.queue[idx];
       set({ queue: s.queue.slice(idx + 1) });
       engine?.localLoad(item.videoId, true);
-      publishSnapshot();
+      void publishSnapshot();
     },
 
     toggleGuestControls() {
@@ -516,8 +703,22 @@ export const useRoom = create<RoomState>((set, get) => {
       const profile = selfProfile;
       if (!profile || s.hostId !== profile.id) return;
       set({ guestsCanControl: !s.guestsCanControl });
-      publishSnapshot();
+      void publishSnapshot();
       get().pushToast(!s.guestsCanControl ? "Guests can control playback" : "Playback locked to host");
+    },
+
+    async toggleRoomLock() {
+      const s = get();
+      const profile = selfProfile;
+      if (!profile || s.hostId !== profile.id || !s.code) return;
+      const locked = !s.roomLocked;
+      const ok = await saveRoomSettings(s.code, { locked });
+      if (!ok) {
+        get().pushToast("Only the host can lock the room", "error");
+        return;
+      }
+      set({ roomLocked: locked });
+      get().pushToast(locked ? "Room locked — new guests can't join" : "Room unlocked");
     },
 
     requestControl() {

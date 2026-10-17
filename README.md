@@ -25,6 +25,7 @@ You can also skip `.env.local` entirely — on first run the app shows a setup o
 1. Create a free project at [supabase.com](https://supabase.com)
 2. **Project Settings → API** → copy the Project URL and anon public key
 3. Anonymous sign-in must be enabled (it is by default under **Authentication → Providers → Anonymous**)
+4. **Apply the database migration** — paste [`supabase/migrations/0001_server_authority.sql`](supabase/migrations/0001_server_authority.sql) into the SQL editor (or `supabase db push` if you use the CLI). The app does not work without it: rooms, membership, and host authority live in Postgres.
 
 ## Voice chat (optional)
 
@@ -45,6 +46,7 @@ The function also needs `SUPABASE_URL` and `SUPABASE_ANON_KEY` (auto-injected by
 | `npm run dev` | dev server |
 | `npm run build` | typecheck + production build to `dist/` |
 | `npm test` | unit tests for the sync engine |
+| `npm run lint` | ESLint over `src/` |
 | `npm run preview` | serve the production build |
 
 ## Deploy
@@ -59,16 +61,27 @@ Set the env vars in your host's dashboard (`VITE_SUPABASE_URL`, `VITE_SUPABASE_A
 
 ## How sync works
 
-Each room is a Supabase Realtime channel. Playback state (video id, timestamp, playing) is broadcast on every play/pause/seek; every other client applies it, advancing the timestamp by elapsed time for late arrivals. Clients that drift more than 0.75s off the shared timeline re-seek every 5s. The host owns the room snapshot (queue, permissions, host identity) and re-broadcasts it on change; if the host leaves, the longest-present member takes over deterministically.
+Each room is a Supabase Realtime channel. Playback state (video id, timestamp, playing) is broadcast on every play/pause/seek; every other client applies it, advancing the timestamp by elapsed time for late arrivals. Clients that drift more than 0.75s off the shared timeline re-seek every 5s. Durable room state (host, permissions, queue, membership) lives in Postgres — see below.
+
+## Security model
+
+- **Identity** is the Supabase anonymous auth UID (`auth.uid()`); profile IDs are never client-invented once signed in.
+- **Host authority is server-side.** `host_id` lives in the `rooms` table. Clients cannot elect themselves: `claim_host()` is a compare-and-swap that only succeeds when the current host's heartbeat (`last_seen`) is stale and the caller is the most senior online member. Graceful leave promotes immediately via `leave_room()`.
+- **Settings/queue writes are RLS-gated** to `host_id` — a modified client calling `update rooms` is rejected by Postgres (0 rows affected).
+- **Joining is validated server-side** by `join_room()`: room exists, password matches (bcrypt), room not locked, caller not banned. Room codes are 6 chars from a 32-char alphabet (~1B combinations), generated with `gen_random_bytes`.
+- **Playback control** travels over Realtime broadcasts for latency; receivers reject any `control`/`snapshot` whose `senderId` is not the Postgres host while playback is host-locked (or when guest control is unlocked, any member may control — they're already inside the authenticated room channel). Realtime broadcasts are not cryptographically signed, so a determined attacker inside a room can forge *ephemeral* playback events from the host's ID; they still cannot change host, queue, permissions, membership, or moderation state. Report issues that improve this (e.g. signed control tokens) via PRs.
+- **Rate limits:** 5 room creations/minute/user, chat flood handled client-side (server-side chat persistence lands with the chat commit), broadcast payloads are length-clamped on receive.
 
 ## Project layout
 
 ```
+supabase/migrations/        server-authoritative schema + RLS + RPCs (required)
 src/
   sync/SyncEngine.ts     framework-agnostic playback sync (unit tested)
   player/YouTubePlayer.ts  YouTube IFrame adapter
   stores/room.ts         room state, transport wiring, host logic
   stores/session.ts      anonymous auth + profile
+  lib/rooms-api.ts       typed wrappers around Postgres RPCs
   components/            UI
   voice/useVoice.ts      LiveKit wrapper (lazy-loaded)
 supabase/functions/livekit-token/  edge function minting LiveKit JWTs

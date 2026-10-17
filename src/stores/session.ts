@@ -29,9 +29,44 @@ interface SessionState {
   init(): Promise<Profile>;
   setName(name: string): void;
   ensureIdentity(): Promise<Profile>;
+  ensureAuthed(): Promise<Profile | null>;
 }
 
 let initPromise: Promise<Profile> | null = null;
+
+/**
+ * Guarantees an authenticated Supabase session and that profile.id === auth.uid().
+ * Server-side authorization (host, moderation, membership) keys off auth.uid(),
+ * so room actions must call this first. Returns null when auth is unavailable.
+ */
+export async function ensureAuthed(): Promise<Profile | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  let uid: string | null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.user?.id) {
+      uid = data.session.user.id;
+    } else {
+      const res = await supabase.auth.signInAnonymously();
+      uid = res.data.user?.id ?? null;
+    }
+  } catch {
+    return null;
+  }
+  if (!uid) return null;
+
+  const current = useSession.getState().profile;
+  if (current?.id === uid) return current;
+  const profile: Profile = {
+    id: uid,
+    name: current?.name && current.name !== "Guest" ? current.name : "Guest",
+    color: current?.color ?? nameHue(uid),
+  };
+  persist(profile);
+  useSession.setState({ profile });
+  return profile;
+}
 
 export const useSession = create<SessionState>((set, get) => ({
   profile: null,
@@ -89,4 +124,6 @@ export const useSession = create<SessionState>((set, get) => ({
     if (existing) return existing;
     return get().init();
   },
+
+  ensureAuthed,
 }));

@@ -167,7 +167,7 @@ describe("SyncEngine remote apply", () => {
       time: 42,
       playing: false,
       sentAt: Date.now(),
-      senderId: "host",
+      senderId: "self",
       senderName: "Host",
       action: "seek",
       notify: true,
@@ -185,7 +185,7 @@ describe("SyncEngine remote apply", () => {
       time: 5,
       playing: true,
       sentAt: Date.now(),
-      senderId: "host",
+      senderId: "self",
       senderName: "Host",
       action: "load",
       notify: true,
@@ -199,13 +199,66 @@ describe("SyncEngine remote apply", () => {
     const base = Date.now();
     engine.applyControl({
       videoId: "abcdefghijk", time: 100, playing: true, sentAt: base,
-      senderId: "host", senderName: "Host", action: "play", notify: false,
+      senderId: "self", senderName: "Host", action: "play", notify: false,
     } satisfies ControlPayload);
     engine.applyControl({
       videoId: "abcdefghijk", time: 10, playing: false, sentAt: base - 5000,
-      senderId: "host", senderName: "Host", action: "pause", notify: false,
+      senderId: "self", senderName: "Host", action: "pause", notify: false,
     } satisfies ControlPayload);
     expect(player.isPlaying()).toBe(true);
+  });
+});
+
+describe("SyncEngine sender validation", () => {
+  it("drops control from a non-host sender while playback is host-locked", () => {
+    const { engine, player, setVideoId, setRole } = makeEngine();
+    setRole({ selfId: "guest", hostId: "host", guestsCanControl: false });
+    setVideoId("abcdefghijk");
+    player.time = 10;
+    player.playing = true;
+    engine.applyControl({
+      videoId: "abcdefghijk", time: 99, playing: false, sentAt: Date.now(),
+      senderId: "attacker", senderName: "Attacker", action: "pause", notify: false,
+    } satisfies ControlPayload);
+    expect(player.isPlaying()).toBe(true);
+    expect(player.getTime()).toBe(10);
+  });
+
+  it("drops a spoofed snapshot while playback is host-locked", () => {
+    const { engine, player, setRole, setVideoId } = makeEngine();
+    setRole({ selfId: "guest", hostId: "host", guestsCanControl: false });
+    setVideoId("abcdefghijk");
+    engine.applySnapshot({
+      videoId: "zzzzzzzzzzz", time: 0, playing: true, sentAt: Date.now(),
+      senderId: "attacker", hostId: "attacker", guestsCanControl: false, queue: [], version: 9,
+    } satisfies RoomSnapshot);
+    expect(player.loaded).toBeNull();
+  });
+
+  it("accepts control from any sender when guests are allowed to control", () => {
+    const { engine, player, setVideoId, setRole } = makeEngine();
+    setRole({ selfId: "guest", hostId: "host", guestsCanControl: true });
+    setVideoId("abcdefghijk");
+    player.time = 10;
+    player.playing = true;
+    engine.applyControl({
+      videoId: "abcdefghijk", time: 55, playing: false, sentAt: Date.now(),
+      senderId: "some-guest", senderName: "Guest", action: "seek", notify: false,
+    } satisfies ControlPayload);
+    expect(player.getTime()).toBeCloseTo(55, 0);
+  });
+
+  it("accepts control from the server-authoritative host id", () => {
+    const { engine, player, setVideoId, setRole } = makeEngine();
+    setRole({ selfId: "guest", hostId: "host", guestsCanControl: false });
+    setVideoId("abcdefghijk");
+    player.time = 10;
+    player.playing = true;
+    engine.applyControl({
+      videoId: "abcdefghijk", time: 60, playing: false, sentAt: Date.now(),
+      senderId: "host", senderName: "Host", action: "seek", notify: false,
+    } satisfies ControlPayload);
+    expect(player.getTime()).toBeCloseTo(60, 0);
   });
 });
 
@@ -241,6 +294,7 @@ describe("SyncEngine snapshot", () => {
       time: 30,
       playing: true,
       sentAt: Date.now(),
+      senderId: "self",
       hostId: "host",
       guestsCanControl: false,
       queue: [],

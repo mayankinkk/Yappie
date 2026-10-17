@@ -80,6 +80,20 @@ export class SyncEngine {
     this.unsubscribers = [];
   }
 
+  /**
+   * Broadcast payloads are not cryptographically authenticated by Realtime, so we
+   * enforce the role contract on receive: hostId is server-authoritative (Postgres),
+   * so while playback is locked, only payloads from the real host apply. When the
+   * host unlocks guest control, any member may control (they're already inside the
+   * room channel); attribution beyond that is cosmetic.
+   */
+  private isTrustedSender(senderId: string | undefined): boolean {
+    if (!senderId) return false;
+    const { hostId, guestsCanControl } = this.opts.getRole();
+    if (guestsCanControl) return true;
+    return !!hostId && senderId === hostId;
+  }
+
   getLocalRef(): PlaybackPayload {
     return { ...this.localRef };
   }
@@ -168,7 +182,7 @@ export class SyncEngine {
     void this.opts.transport.send("sync-request", {});
   }
 
-  sendSnapshot(snapshot: Omit<RoomSnapshot, "sentAt" | "time" | "playing" | "videoId"> & Partial<PlaybackPayload>): void {
+  sendSnapshot(snapshot: Omit<RoomSnapshot, "sentAt" | "time" | "playing" | "videoId" | "senderId"> & Partial<PlaybackPayload>): void {
     const videoId = snapshot.videoId ?? this.localRef.videoId ?? "";
     const playing = snapshot.playing ?? this.localRef.playing;
     const time =
@@ -176,6 +190,7 @@ export class SyncEngine {
       (this.opts.player.ready() ? this.opts.player.getTime() : this.localRef.time);
     const payload: RoomSnapshot = {
       ...snapshot,
+      senderId: this.opts.getRole().selfId,
       videoId,
       time,
       playing,
@@ -188,6 +203,7 @@ export class SyncEngine {
   applyControl(raw: unknown): void {
     const p = raw as ControlPayload | null;
     if (!p || !p.videoId || typeof p.sentAt !== "number") return;
+    if (!this.isTrustedSender(p.senderId)) return;
     if (p.sentAt < this.lastAppliedSentAt) return;
     this.lastAppliedSentAt = p.sentAt;
     this.applyPayload(p, p.notify ? p.senderName : "");
@@ -198,6 +214,7 @@ export class SyncEngine {
     if (!p || typeof p.sentAt !== "number") return;
     if (p.sentAt < this.lastAppliedSentAt) return;
     if (!p.videoId) return;
+    if (!this.isTrustedSender(p.senderId)) return;
     this.lastAppliedSentAt = p.sentAt;
     this.applyPayload(p, "");
   }
