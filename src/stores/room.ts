@@ -30,9 +30,24 @@ import {
   type RoomRow,
 } from "../lib/rooms-api";
 import { ensureAuthed } from "./session";
+import { MinGap, RateLimiter } from "../lib/ratelimit";
 
 const CHAT_TRIM = 200;
 const HEARTBEAT_MS = 20_000;
+const QUEUE_MAX = 50;
+
+// Sender-side budgets: drop our own excess before it hits the network.
+const chatOut = new RateLimiter(5, 5000);
+const chatOutGap = new MinGap(500);
+const reactionOut = new RateLimiter(6, 3000);
+const queueAddOut = new RateLimiter(6, 60_000);
+
+// Receiver-side budgets: drop other clients' excess on arrival. These defend
+// against modified clients that skip the sender-side guards above.
+const chatIn = new RateLimiter(5, 5000);
+const reactionIn = new RateLimiter(8, 3000);
+const queueAddIn = new RateLimiter(6, 60_000);
+const toastGap = new MinGap(350);
 
 let transport: Transport | null = null;
 let engine: SyncEngine | null = null;
@@ -185,6 +200,7 @@ export const useRoom = create<RoomState>((set, get) => {
     if (selfProfile?.id !== s.hostId) return;
     if (!item.videoId || !/^[\w-]{11}$/.test(item.videoId)) return;
     if (s.queue.some((q) => q.videoId === item.videoId)) return;
+    if (s.queue.length >= QUEUE_MAX) return;
     set({ queue: [...s.queue, item] });
     void publishSnapshot();
   }
@@ -302,6 +318,7 @@ export const useRoom = create<RoomState>((set, get) => {
     t.on("chat", (payload) => {
       const p = payload as ChatMessage | null;
       if (!p || p.senderId === profile.id) return;
+      if (!chatIn.allow(String(p.senderId || "?"))) return;
       pushMessage(
         set,
         get,
@@ -320,6 +337,7 @@ export const useRoom = create<RoomState>((set, get) => {
     t.on("reaction", (payload) => {
       const p = payload as ReactionEvent | null;
       if (!p || p.senderId === profile.id) return;
+      if (!reactionIn.allow(String(p.senderId || "?"))) return;
       addFloating(set, get, {
         id: clampText(p.id, 64) || randomId(),
         senderId: clampText(p.senderId, 64),
@@ -333,6 +351,7 @@ export const useRoom = create<RoomState>((set, get) => {
     t.on("queue-add", (payload) => {
       const p = payload as QueueItem | null;
       if (!p) return;
+      if (!queueAddIn.allow(String(p.addedBy || "?"))) return;
       handleQueueAdd({
         id: clampText(p.id, 64) || randomId(),
         videoId: clampText(p.videoId, 32),
@@ -597,6 +616,10 @@ export const useRoom = create<RoomState>((set, get) => {
     sendChat(text) {
       const profile = selfProfile;
       if (!profile || !transport || !text.trim()) return;
+      if (!chatOut.allow(profile.id) || !chatOutGap.allow(profile.id)) {
+        get().pushToast("You're messaging too fast", "error");
+        return;
+      }
       const msg: ChatMessage = {
         id: randomId(),
         senderId: profile.id,
@@ -612,6 +635,7 @@ export const useRoom = create<RoomState>((set, get) => {
     react(emoji) {
       const profile = selfProfile;
       if (!profile || !transport) return;
+      if (!reactionOut.allow(profile.id)) return;
       const event: ReactionEvent = {
         id: randomId(),
         senderId: profile.id,
@@ -645,10 +669,18 @@ export const useRoom = create<RoomState>((set, get) => {
         addedAt: Date.now(),
       };
       if (s.hostId === profile.id) {
+        if (s.queue.length >= QUEUE_MAX) {
+          get().pushToast("Queue is full (max 50)", "error");
+          return;
+        }
         set({ queue: [...s.queue, item] });
         void publishSnapshot();
         get().pushToast("Added to queue");
       } else {
+        if (s.queue.length >= QUEUE_MAX || !queueAddOut.allow(profile.id)) {
+          get().pushToast("Slow down with the queue requests", "error");
+          return;
+        }
         void transport.send("queue-add", item);
         get().pushToast("Requested to add to queue");
       }
@@ -733,8 +765,15 @@ export const useRoom = create<RoomState>((set, get) => {
     },
 
     pushToast(text, kind = "info") {
-      const toast: ToastItem = { id: randomId(), text, kind };
-      set({ toasts: [...get().toasts.slice(-3), toast] });
+      // Guards against toast floods (remote actions, rate-limit notices, ...):
+      // same message within 3s is deduped, and globally at most ~1 per 350ms.
+      const now = Date.now();
+      const toasts = get().toasts;
+      const last = toasts[toasts.length - 1];
+      if (last && last.text === text && now - (last.ts || 0) < 3000) return;
+      if (!toastGap.allow("toast")) return;
+      const toast: ToastItem = { id: randomId(), text, kind, ts: now };
+      set({ toasts: [...toasts.slice(-3), toast] });
       setTimeout(() => get().dismissToast(toast.id), 3200);
     },
 

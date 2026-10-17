@@ -70,7 +70,7 @@ Each room is a Supabase Realtime channel. Playback state (video id, timestamp, p
 - **Settings/queue writes are RLS-gated** to `host_id` — a modified client calling `update rooms` is rejected by Postgres (0 rows affected).
 - **Joining is validated server-side** by `join_room()`: room exists, password matches (bcrypt), room not locked, caller not banned. Room codes are 6 chars from a 32-char alphabet (~1B combinations), generated with `gen_random_bytes`.
 - **Playback control** travels over Realtime broadcasts for latency; receivers reject any `control`/`snapshot` whose `senderId` is not the Postgres host while playback is host-locked (or when guest control is unlocked, any member may control — they're already inside the authenticated room channel). Realtime broadcasts are not cryptographically signed, so a determined attacker inside a room can forge *ephemeral* playback events from the host's ID; they still cannot change host, queue, permissions, membership, or moderation state. Report issues that improve this (e.g. signed control tokens) via PRs.
-- **Rate limits:** 5 room creations/minute/user, chat flood handled client-side (server-side chat persistence lands with the chat commit), broadcast payloads are length-clamped on receive.
+- **Rate limits:** 5 room creations/minute/user (SQL), per-connection broadcast cap of 20 events/s (Supabase), plus per-identity budgets on both sides of the wire — chat 5/5s, reactions 6-8/3s, queue requests 6/min, control coalesced to ≤1 per 150ms outbound and ≤12/s inbound per sender, sync-request ≤1/3s, toast dedupe/gap. Server-side chat limits land with chat persistence.
 
 ## Project layout
 

@@ -1,5 +1,14 @@
 import type { ControlPayload, PlaybackPayload, PlaybackTarget, PlayerAdapter, RoomSnapshot, Transport } from "../types";
 import { clamp, nowMs } from "../lib/time";
+import { MinGap, RateLimiter } from "../lib/ratelimit";
+
+/** Min gap between outbound control broadcasts (state is full-snapshot, so coalescing is safe). */
+const OUT_GAP_MS = 150;
+/** Min gap between sync-request broadcasts. */
+const SYNC_REQ_GAP_MS = 3000;
+/** Inbound control budget per sender identity (Supabase also caps total events/sec per connection). */
+const INBOUND_CONTROL_LIMIT = 12;
+const INBOUND_CONTROL_WINDOW_MS = 1000;
 
 export function computeCatchUpTarget(
   p: Pick<PlaybackPayload, "time" | "playing" | "sentAt">,
@@ -52,6 +61,12 @@ export class SyncEngine {
   private applyTimer: ReturnType<typeof setTimeout> | null = null;
   private unsubscribers: Array<() => void> = [];
   private started = false;
+  private outTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly outGap = new MinGap(OUT_GAP_MS);
+  private readonly syncReqGap = new MinGap(SYNC_REQ_GAP_MS);
+  private readonly syncRespondGap = new MinGap(2000);
+  private readonly inboundControl = new RateLimiter(INBOUND_CONTROL_LIMIT, INBOUND_CONTROL_WINDOW_MS);
+  private readonly inboundControlReq = new RateLimiter(3, 10_000);
 
   constructor(opts: SyncEngineOptions) {
     this.opts = opts;
@@ -67,6 +82,7 @@ export class SyncEngine {
       "sync-request": () => this.respondToSyncRequest(),
       "control-request": (p) => {
         const name = (p as { senderName?: string } | null)?.senderName || "Someone";
+        if (!this.inboundControlReq.allow(String(name))) return;
         this.opts.onControlRequested(name);
       },
     };
@@ -76,6 +92,8 @@ export class SyncEngine {
   destroy(): void {
     this.started = false;
     if (this.applyTimer) clearTimeout(this.applyTimer);
+    if (this.outTimer) clearTimeout(this.outTimer);
+    this.outTimer = null;
     this.unsubscribers.forEach((u) => u());
     this.unsubscribers = [];
   }
@@ -120,6 +138,21 @@ export class SyncEngine {
       ? this.opts.player.isPlaying()
       : this.localRef.playing;
     const { selfId } = this.opts.getRole();
+    this.localRef = { videoId, time, playing, sentAt: nowMs() };
+    this.opts.onLocalState({ videoId, time, playing });
+
+    // Payloads carry the full state, so a burst can be coalesced into one
+    // send after the gap instead of flooding the channel.
+    if (action !== "load" && !this.outGap.allow(selfId)) {
+      if (!this.outTimer) {
+        const delay = OUT_GAP_MS / 2;
+        this.outTimer = setTimeout(() => {
+          this.outTimer = null;
+          this.flushCoalesced();
+        }, delay);
+      }
+      return;
+    }
     const payload: ControlPayload = {
       videoId,
       time,
@@ -130,9 +163,37 @@ export class SyncEngine {
       action,
       notify,
     };
-    this.localRef = { videoId, time, playing, sentAt: payload.sentAt };
-    this.opts.onLocalState({ videoId, time, playing });
     void this.opts.transport.send("control", payload);
+  }
+
+  /** Sends the latest local state after a coalesced burst (silent — no toast spam). */
+  private flushCoalesced(): void {
+    const videoId = this.opts.getVideoId();
+    if (!videoId || !this.started) return;
+    const time = this.opts.player.ready() ? this.opts.player.getTime() : this.localRef.time;
+    const playing = this.opts.player.ready()
+      ? this.opts.player.isPlaying()
+      : this.localRef.playing;
+    const { selfId } = this.opts.getRole();
+    if (!this.outGap.allow(selfId)) {
+      // Still inside the gap — try again shortly.
+      this.outTimer = setTimeout(() => {
+        this.outTimer = null;
+        this.flushCoalesced();
+      }, OUT_GAP_MS / 2);
+      return;
+    }
+    this.localRef = { videoId, time, playing, sentAt: nowMs() };
+    void this.opts.transport.send("control", {
+      videoId,
+      time,
+      playing,
+      sentAt: this.localRef.sentAt,
+      senderId: selfId,
+      senderName: "",
+      action: playing ? "play" : "pause",
+      notify: false,
+    } satisfies ControlPayload);
   }
 
   localPlay(): void {
@@ -161,6 +222,8 @@ export class SyncEngine {
     this.opts.player.load(videoId, 0, autoplay);
     this.localRef = { videoId, time: 0, playing: autoplay, sentAt: nowMs() };
     this.opts.onLocalState({ videoId, time: 0, playing: autoplay });
+    const { selfId } = this.opts.getRole();
+    this.outGap.allow(selfId); // occupy the outbound gap so a burst coalesces after the load
     void this.opts.transport.send("control", {
       videoId,
       time: 0,
@@ -179,6 +242,7 @@ export class SyncEngine {
   }
 
   requestSync(): void {
+    if (!this.syncReqGap.allow("sync-request")) return;
     void this.opts.transport.send("sync-request", {});
   }
 
@@ -203,6 +267,7 @@ export class SyncEngine {
   applyControl(raw: unknown): void {
     const p = raw as ControlPayload | null;
     if (!p || !p.videoId || typeof p.sentAt !== "number") return;
+    if (!this.inboundControl.allow(String(p.senderId || "?"))) return;
     if (!this.isTrustedSender(p.senderId)) return;
     if (p.sentAt < this.lastAppliedSentAt) return;
     this.lastAppliedSentAt = p.sentAt;
@@ -254,6 +319,7 @@ export class SyncEngine {
   }
 
   private respondToSyncRequest(): void {
+    if (!this.started || !this.syncRespondGap.allow("respond")) return;
     const videoId = this.opts.getVideoId();
     if (!videoId) return;
     setTimeout(

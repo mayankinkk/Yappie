@@ -67,6 +67,7 @@ export interface ToastItem {
   id: string;
   text: string;
   kind: "info" | "error";
+  ts?: number;
 }
 
 export interface PlaybackTarget {

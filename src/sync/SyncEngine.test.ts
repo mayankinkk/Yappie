@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   computeCatchUpTarget,
   computeExpectedTime,
@@ -303,6 +303,67 @@ describe("SyncEngine snapshot", () => {
     engine.applySnapshot(snap);
     expect(player.loaded?.videoId).toBe("ccccccccccc");
     expect(player.isPlaying()).toBe(true);
+  });
+});
+
+describe("SyncEngine rate limiting", () => {
+  it("coalesces a burst of play/pause into at most 2 sends, final state wins", async () => {
+    const { engine, player, transport, setVideoId } = makeEngine();
+    setVideoId("abcdefghijk");
+    engine.localPlay();
+    engine.localPause();
+    engine.localPlay();
+    engine.localPause();
+    const immediate = transport.sent.filter((s) => s.event === "control");
+    expect(immediate.length).toBeLessThan(4);
+    await new Promise((r) => setTimeout(r, 500));
+    const all = transport.sent.filter((s) => s.event === "control");
+    const last = all[all.length - 1].payload as ControlPayload;
+    expect(all.length).toBeLessThanOrEqual(2);
+    expect(last.playing).toBe(false);
+    expect(player.isPlaying()).toBe(false);
+  });
+
+  it("limits sync-request to one send per 3 seconds", () => {
+    const { engine, transport } = makeEngine();
+    engine.requestSync();
+    engine.requestSync();
+    engine.requestSync();
+    expect(transport.sent.filter((s) => s.event === "sync-request").length).toBe(1);
+  });
+
+  it("drops inbound control floods beyond 12/second per sender", () => {
+    const { engine, player, setVideoId } = makeEngine();
+    setVideoId("abcdefghijk");
+    const playSpy = vi.spyOn(player, "play");
+    const pauseSpy = vi.spyOn(player, "pause");
+    const base = Date.now();
+    for (let i = 0; i < 20; i++) {
+      engine.applyControl({
+        videoId: "abcdefghijk",
+        time: i * 10,
+        playing: i % 2 === 0,
+        sentAt: base + i,
+        senderId: "self",
+        senderName: "Self",
+        action: i % 2 === 0 ? "play" : "pause",
+        notify: false,
+      } satisfies ControlPayload);
+    }
+    const applied = playSpy.mock.calls.length + pauseSpy.mock.calls.length;
+    expect(applied).toBeLessThanOrEqual(12);
+    expect(applied).toBeGreaterThan(0);
+    playSpy.mockRestore();
+    pauseSpy.mockRestore();
+  });
+
+  it("rate-limits control-request notifications per sender", () => {
+    const onControlRequested = vi.fn();
+    const { transport, player } = makeEngine({ onControlRequested });
+    for (let i = 0; i < 6; i++) transport.emit("control-request", { senderName: "Spammer" });
+    expect(onControlRequested.mock.calls.length).toBeLessThanOrEqual(3);
+    expect(onControlRequested.mock.calls.length).toBeGreaterThan(0);
+    void player;
   });
 });
 
