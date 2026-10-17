@@ -90,6 +90,7 @@ export interface PlayerAdapter {
   getTime(): number;
   isPlaying(): boolean;
   setMuted(muted: boolean): void;
+  setVolume(volume: number): void;
   destroy(): void;
   onLocalEvent(cb: (e: PlayerLocalEvent) => void): void;
 }

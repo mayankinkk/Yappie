@@ -24,6 +24,7 @@ class FakePlayer implements PlayerAdapter {
   getTime() { return this.time; }
   isPlaying() { return this.playing; }
   setMuted() {}
+  setVolume() {}
   destroy() {}
   onLocalEvent(cb: (e: PlayerLocalEvent) => void) { this.cb = cb; }
   emit(type: PlayerLocalEvent["type"]) { this.cb?.({ type } as PlayerLocalEvent); }

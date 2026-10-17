@@ -40,6 +40,7 @@ export class YouTubePlayer implements PlayerAdapter {
   private cb: ((e: PlayerLocalEvent) => void) | null = null;
   private currentVideoId: string | null = null;
   private muted = false;
+  private volume = 100;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -62,6 +63,7 @@ export class YouTubePlayer implements PlayerAdapter {
         onReady: () => {
           this.readyState = true;
           if (this.muted) this.player?.mute();
+          this.player?.setVolume(this.volume);
           this.cb?.({ type: "ready" });
         },
         onStateChange: (e) => {
@@ -118,6 +120,12 @@ export class YouTubePlayer implements PlayerAdapter {
     if (!this.player || !this.readyState) return;
     if (muted) this.player.mute();
     else this.player.unMute();
+  }
+
+  setVolume(volume: number): void {
+    this.volume = Math.max(0, Math.min(100, volume));
+    if (!this.player || !this.readyState) return;
+    this.player.setVolume(this.volume);
   }
 
   getCurrentVideoId(): string | null {

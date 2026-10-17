@@ -334,6 +334,7 @@ export const useRoom = create<RoomState>((set, get) => {
         getTime: () => playerAdapter?.getTime() ?? 0,
         isPlaying: () => playerAdapter?.isPlaying() ?? false,
         setMuted: (m) => playerAdapter?.setMuted(m),
+        setVolume: (v) => playerAdapter?.setVolume(v),
         destroy: () => {},
         onLocalEvent: () => {},
       },
