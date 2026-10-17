@@ -7,3 +7,6 @@ dist
 test-results/
 playwright-report/
 supabase/.temp/
+
+# local artifacts
+*.apk
