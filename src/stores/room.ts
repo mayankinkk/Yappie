@@ -23,6 +23,7 @@ import {
   heartbeatRpc,
   joinRoomRpc,
   leaveRoomRpc,
+  moderateMemberRpc,
   saveRoomSettings,
   type JoinedRoom,
   type MembershipRow,
@@ -35,6 +36,7 @@ import { MinGap, RateLimiter } from "../lib/ratelimit";
 const CHAT_TRIM = 200;
 const HEARTBEAT_MS = 20_000;
 const QUEUE_MAX = 50;
+const MUTE_DEFAULT_SECONDS = 300;
 
 // Sender-side budgets: drop our own excess before it hits the network.
 const chatOut = new RateLimiter(5, 5000);
@@ -48,6 +50,11 @@ const chatIn = new RateLimiter(5, 5000);
 const reactionIn = new RateLimiter(8, 3000);
 const queueAddIn = new RateLimiter(6, 60_000);
 const toastGap = new MinGap(350);
+const membersRefresh = new MinGap(10_000);
+
+function isMuted(row: MembershipRow | undefined): boolean {
+  return !!row?.muted_until && Date.parse(row.muted_until) > Date.now();
+}
 
 let transport: Transport | null = null;
 let engine: SyncEngine | null = null;
@@ -71,6 +78,7 @@ interface RoomState {
   messages: ChatMessage[];
   unread: number;
   participants: Participant[];
+  members: MembershipRow[];
   floating: FloatingReaction[];
   toasts: ToastItem[];
 
@@ -78,6 +86,9 @@ interface RoomState {
   joinRoom(code: string, profile: Profile, password?: string | null): Promise<void>;
   leaveRoom(): void;
   attachPlayer(adapter: PlayerAdapter): void;
+  loadMembers(): Promise<void>;
+  moderate(userId: string, opts: { banned?: boolean; muteSeconds?: number }): Promise<void>;
+  setHost(userId: string): Promise<void>;
 
   togglePlayback(): void;
   seekTo(time: number): void;
@@ -318,6 +329,8 @@ export const useRoom = create<RoomState>((set, get) => {
     t.on("chat", (payload) => {
       const p = payload as ChatMessage | null;
       if (!p || p.senderId === profile.id) return;
+      const member = get().members.find((m) => m.user_id === p.senderId);
+      if (member && (member.banned || isMuted(member))) return;
       if (!chatIn.allow(String(p.senderId || "?"))) return;
       pushMessage(
         set,
@@ -337,6 +350,8 @@ export const useRoom = create<RoomState>((set, get) => {
     t.on("reaction", (payload) => {
       const p = payload as ReactionEvent | null;
       if (!p || p.senderId === profile.id) return;
+      const member = get().members.find((m) => m.user_id === p.senderId);
+      if (member && (member.banned || isMuted(member))) return;
       if (!reactionIn.allow(String(p.senderId || "?"))) return;
       addFloating(set, get, {
         id: clampText(p.id, 64) || randomId(),
@@ -376,9 +391,19 @@ export const useRoom = create<RoomState>((set, get) => {
       "postgres_changes",
       { event: "*", schema: "public", table: "room_members", filter: `room_code=eq.${code}` },
       (payload) => {
-        const row = payload.new as MembershipRow | null;
-        if (!row || row.user_id !== profile.id) return;
-        if (row.banned) {
+        const row = (payload.new ?? payload.old) as MembershipRow | null;
+        if (!row || row.room_code !== code) return;
+        const members = [...get().members];
+        const idx = members.findIndex((m) => m.user_id === row.user_id);
+        if (payload.eventType === "DELETE") {
+          if (idx >= 0) members.splice(idx, 1);
+          set({ members });
+          return;
+        }
+        if (idx >= 0) members[idx] = row;
+        else members.push(row);
+        set({ members });
+        if (row.user_id === profile.id && row.banned) {
           get().pushToast("You were banned from this room", "error");
           setTimeout(() => get().leaveRoom(), 500);
         }
@@ -425,6 +450,9 @@ export const useRoom = create<RoomState>((set, get) => {
       if (current.hostId && current.hostId !== profile.id && !list.some((x) => x.id === current.hostId)) {
         setTimeout(() => void attemptClaim(), 3000);
       }
+      // Roster data (mute/ban badges) can drift if realtime DELETEs are filtered
+      // by RLS — refresh opportunistically, at most every 10s.
+      if (membersRefresh.allow("members")) void get().loadMembers();
     });
 
     return new Promise((resolve, reject) => {
@@ -437,6 +465,7 @@ export const useRoom = create<RoomState>((set, get) => {
             color: profile.color,
             joinedAt: Date.now(),
           });
+          void get().loadMembers();
           engine?.requestSync();
           if (!settled) {
             settled = true;
@@ -473,8 +502,43 @@ export const useRoom = create<RoomState>((set, get) => {
     messages: [],
     unread: 0,
     participants: [],
+    members: [],
     floating: [],
     toasts: [],
+
+    async loadMembers() {
+      const s = get();
+      const supabase = getSupabase();
+      if (!s.code || !supabase) return;
+      const { data } = await supabase
+        .from("room_members")
+        .select("*")
+        .eq("room_code", s.code);
+      if (data && get().code === s.code) set({ members: data as MembershipRow[] });
+    },
+
+    async moderate(userId, opts) {
+      const s = get();
+      if (!s.code) return;
+      try {
+        await moderateMemberRpc(s.code, userId, opts);
+        if (opts.banned === true) get().pushToast("Banned from the room");
+        else if (opts.banned === false) get().pushToast("Unbanned");
+        else if (opts.muteSeconds === 0) get().pushToast("Mute lifted");
+        else get().pushToast(`Muted for ${Math.round((opts.muteSeconds ?? MUTE_DEFAULT_SECONDS) / 60)} min`);
+        await get().loadMembers();
+      } catch (e) {
+        get().pushToast(e instanceof RoomError ? e.message : "Couldn't update that member", "error");
+      }
+    },
+
+    async setHost(userId) {
+      const s = get();
+      if (!s.code) return;
+      const ok = await saveRoomSettings(s.code, { host_id: userId });
+      if (ok) get().pushToast("Host transferred");
+      else get().pushToast("Only the host can transfer hosting", "error");
+    },
 
     async createRoom(profile, password) {
       if (!isSupabaseConfigured()) {
@@ -487,7 +551,7 @@ export const useRoom = create<RoomState>((set, get) => {
         code = await createRoomRpc(password ?? null, p.name);
       } catch (e) {
         const err = e instanceof RoomError ? e : new RoomError("unknown", "Couldn't create the room");
-        get().pushToast(err.message, "error");
+        if (!err.silent) get().pushToast(err.message, "error");
         throw new RoomError(err.code, err.message, true);
       }
       get().pushToast(`Room ${code} created`);
@@ -507,7 +571,7 @@ export const useRoom = create<RoomState>((set, get) => {
         joined = await joinRoomRpc(code, password ?? null, p.name);
       } catch (e) {
         const err = e instanceof RoomError ? e : new RoomError("unknown", "Couldn't join the room");
-        get().pushToast(err.message, "error");
+        if (!err.silent) get().pushToast(err.message, "error");
         throw new RoomError(err.code, err.message, true);
       }
 
@@ -524,6 +588,7 @@ export const useRoom = create<RoomState>((set, get) => {
         messages: [],
         unread: 0,
         participants: [],
+        members: [],
         floating: [],
       });
       selfProfile = p;
@@ -562,6 +627,7 @@ export const useRoom = create<RoomState>((set, get) => {
         messages: [],
         unread: 0,
         participants: [],
+        members: [],
         floating: [],
       });
       const url = new URL(location.href);
@@ -616,6 +682,11 @@ export const useRoom = create<RoomState>((set, get) => {
     sendChat(text) {
       const profile = selfProfile;
       if (!profile || !transport || !text.trim()) return;
+      const selfMember = get().members.find((m) => m.user_id === profile.id);
+      if (isMuted(selfMember)) {
+        get().pushToast("You're muted", "error");
+        return;
+      }
       if (!chatOut.allow(profile.id) || !chatOutGap.allow(profile.id)) {
         get().pushToast("You're messaging too fast", "error");
         return;
@@ -635,6 +706,8 @@ export const useRoom = create<RoomState>((set, get) => {
     react(emoji) {
       const profile = selfProfile;
       if (!profile || !transport) return;
+      const selfMember = get().members.find((m) => m.user_id === profile.id);
+      if (isMuted(selfMember)) return;
       if (!reactionOut.allow(profile.id)) return;
       const event: ReactionEvent = {
         id: randomId(),

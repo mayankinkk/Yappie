@@ -176,8 +176,11 @@ begin
 
   -- Password is only required for users who were never members of this room.
   if v_room.password_hash is not null and v_member.user_id is null then
-    if p_password is null or crypt(p_password, v_room.password_hash) <> v_room.password_hash then
+    if p_password is null then
       raise exception 'password_required';
+    end if;
+    if crypt(p_password, v_room.password_hash) <> v_room.password_hash then
+      raise exception 'password_wrong';
     end if;
   end if;
 
@@ -350,9 +353,9 @@ begin
   update public.room_members
   set banned = coalesce(p_banned, banned),
       muted_until = case
-        when p_mute_seconds is not null then now() + (p_mute_seconds || ' seconds')::interval
-        when p_banned = false then null
-        else muted_until
+        when p_mute_seconds is null then muted_until
+        when p_mute_seconds <= 0 then null
+        else now() + (p_mute_seconds || ' seconds')::interval
       end
   where room_code = v_code and user_id = p_user_id;
 end;

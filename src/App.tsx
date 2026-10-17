@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "./stores/session";
 import { useRoom } from "./stores/room";
 import { isValidRoomCode } from "./lib/ids";
+import { RoomError } from "./lib/rooms-api";
 import Landing from "./components/Landing";
 import Room from "./components/Room";
 import Toasts from "./components/Toasts";
@@ -11,6 +12,7 @@ import { isSupabaseConfigured } from "./lib/supabase";
 export default function App() {
   const [booted, setBooted] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
+  const [askPassword, setAskPassword] = useState<string | null>(null);
   const profile = useSession((s) => s.profile);
   const init = useSession((s) => s.init);
   const code = useRoom((r) => r.code);
@@ -25,8 +27,10 @@ export default function App() {
       if (isValidRoomCode(roomParam) && isSupabaseConfigured() && p.name !== "Guest") {
         try {
           await joinRoom(roomParam, p);
-        } catch {
-          /* stay on landing; toast shown by store */
+        } catch (e) {
+          // Password-protected room: fall back to the landing page with the
+          // password prompt open for this code. Other errors toast in the store.
+          if (e instanceof RoomError && e.code === "password") setAskPassword(roomParam);
         }
       }
       if (!isSupabaseConfigured()) setShowSetup(true);
@@ -51,7 +55,11 @@ export default function App() {
 
   return (
     <>
-      {code ? <Room /> : <Landing onNeedSetup={() => setShowSetup(true)} />}
+      {code ? (
+        <Room />
+      ) : (
+        <Landing onNeedSetup={() => setShowSetup(true)} askPasswordFor={askPassword} />
+      )}
       <Toasts />
       {showSetup && (
         <SetupOverlay

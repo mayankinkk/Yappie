@@ -50,11 +50,13 @@ function mapError(raw: string): RoomError {
   if (msg.includes("password_required")) {
     return new RoomError("password", "That room needs a password", true);
   }
+  if (msg.includes("password_wrong")) return new RoomError("password", "Wrong password", true);
   if (msg.includes("banned")) return new RoomError("banned", "You're banned from this room");
   if (msg.includes("locked")) return new RoomError("locked", "The room is locked right now");
   if (msg.includes("rate_limited")) return new RoomError("rate", "Slow down — rooms created too fast");
-  if (msg.includes("not_host") || msg.includes("host_active") || msg.includes("not_senior")) {
-    return new RoomError("host", "Host claim rejected");
+  if (msg.includes("not_host")) return new RoomError("host", "Only the host can do that");
+  if (msg.includes("host_active") || msg.includes("not_senior") || msg.includes("invalid_target")) {
+    return new RoomError("host", "Host handoff rejected");
   }
   if (msg.includes("not_a_member")) return new RoomError("member", "Not a member of this room");
   return new RoomError("unknown", "Something went wrong — try again");

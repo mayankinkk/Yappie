@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSession } from "../stores/session";
 import { useRoom } from "../stores/room";
 import { sanitizeCode } from "../lib/ids";
@@ -8,9 +8,10 @@ import { SofaMark } from "../App";
 
 interface Props {
   onNeedSetup: () => void;
+  askPasswordFor?: string | null;
 }
 
-export default function Landing({ onNeedSetup }: Props) {
+export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
   const profile = useSession((s) => s.profile);
   const setName = useSession((s) => s.setName);
   const createRoom = useRoom((s) => s.createRoom);
@@ -21,6 +22,19 @@ export default function Landing({ onNeedSetup }: Props) {
   );
   const [busy, setBusy] = useState(false);
   const [shake, setShake] = useState(0);
+  const [joinPassword, setJoinPassword] = useState<string | null>(null);
+  const [passwordDraft, setPasswordDraft] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [createProtected, setCreateProtected] = useState(false);
+  const [roomPassword, setRoomPassword] = useState("");
+
+  useEffect(() => {
+    const clean = sanitizeCode(askPasswordFor || "");
+    if (clean.length === 6) {
+      setCode(clean);
+      setJoinPassword((prev) => prev ?? clean);
+    }
+  }, [askPasswordFor]);
 
   function requireName(): boolean {
     if (!profile?.name || profile.name === "Guest") {
@@ -40,12 +54,29 @@ export default function Landing({ onNeedSetup }: Props) {
     return true;
   }
 
+  function handleJoinError(e: unknown, clean: string): void {
+    if (e instanceof RoomError && e.code === "password") {
+      setJoinPassword(clean);
+      setPasswordError(e.message === "Wrong password" ? "Wrong password" : "");
+      return;
+    }
+    if (joinPassword) setJoinPassword(null);
+    setPasswordDraft("");
+    setPasswordError("");
+    if (!(e instanceof RoomError)) pushToast("Couldn't join the room", "error");
+  }
+
   async function handleCreate() {
     if (busy) return;
     if (!requireName() || !requireSetup()) return;
+    const pw = createProtected && roomPassword.trim() ? roomPassword.trim() : null;
+    if (createProtected && !pw) {
+      setShake((s) => s + 1);
+      return;
+    }
     setBusy(true);
     try {
-      await createRoom(profile!);
+      await createRoom(profile!, pw);
     } catch (e) {
       if (!(e instanceof RoomError)) pushToast("Couldn't create the room", "error");
     } finally {
@@ -62,10 +93,13 @@ export default function Landing({ onNeedSetup }: Props) {
       return;
     }
     setBusy(true);
+    setPasswordError("");
     try {
-      await joinRoom(clean, profile!);
+      await joinRoom(clean, profile!, joinPassword ? passwordDraft : null);
+      setJoinPassword(null);
+      setPasswordDraft("");
     } catch (e) {
-      if (!(e instanceof RoomError)) pushToast("Couldn't join the room", "error");
+      handleJoinError(e, clean);
     } finally {
       setBusy(false);
     }
@@ -94,11 +128,30 @@ export default function Landing({ onNeedSetup }: Props) {
         <button className="btn primary wide" onClick={handleCreate} disabled={busy}>
           {busy ? "Joining…" : "Create a room"}
         </button>
+        <label className="pw-toggle">
+          <input
+            type="checkbox"
+            checked={createProtected}
+            onChange={(e) => setCreateProtected(e.target.checked)}
+          />
+          Protect the room with a password
+        </label>
+        {createProtected && (
+          <input
+            className="field"
+            type="password"
+            maxLength={64}
+            placeholder="Room password"
+            value={roomPassword}
+            onChange={(e) => setRoomPassword(e.target.value)}
+          />
+        )}
         <div className="divider">
           <span>or join a friend</span>
         </div>
         <div className="join-row">
           <input
+            id="code-input"
             className="field code-field"
             type="text"
             maxLength={6}
@@ -114,6 +167,24 @@ export default function Landing({ onNeedSetup }: Props) {
             Join
           </button>
         </div>
+        {joinPassword && (
+          <div className="join-password">
+            <input
+              id="join-password-input"
+              className="field"
+              type="password"
+              maxLength={64}
+              autoFocus
+              placeholder="Password for this room"
+              value={passwordDraft}
+              onChange={(e) => setPasswordDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleJoin();
+              }}
+            />
+            {passwordError && <div className="field-error">{passwordError}</div>}
+          </div>
+        )}
       </div>
     </div>
   );

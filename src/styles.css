@@ -1114,3 +1114,64 @@ input[type="range"].seek:disabled {
     transform: translateY(0);
   }
 }
+
+/* Room privacy + moderation (passwords, lock, ban/mute) */
+.pw-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.pw-toggle input {
+  accent-color: var(--accent);
+}
+
+.join-password {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.field-error {
+  color: #f87171;
+  font-size: 0.8rem;
+}
+
+.btn.ghost.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.watcher-row {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.watcher-chip.clickable {
+  cursor: pointer;
+}
+
+.watcher-chip.clickable:hover {
+  border-color: var(--border);
+}
+
+.member-dot {
+  margin-left: 4px;
+  font-size: 0.7rem;
+}
+
+.watcher-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-left: 6px;
+}
