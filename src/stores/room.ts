@@ -25,6 +25,7 @@ import {
   leaveRoomRpc,
   moderateMemberRpc,
   saveRoomSettings,
+  type ChatRow,
   type JoinedRoom,
   type MembershipRow,
   type QueueRow,
@@ -54,6 +55,17 @@ const membersRefresh = new MinGap(10_000);
 
 function isMuted(row: MembershipRow | undefined): boolean {
   return !!row?.muted_until && Date.parse(row.muted_until) > Date.now();
+}
+
+function rowToChat(row: ChatRow): ChatMessage {
+  return {
+    id: clampText(row.id, 64) || randomId(),
+    senderId: clampText(row.sender_id, 64),
+    name: clampText(row.sender_name, 40) || "Guest",
+    color: typeof row.color === "number" ? row.color : 30,
+    text: clampText(row.text, 500),
+    ts: Date.parse(row.created_at) || Date.now(),
+  };
 }
 
 let transport: Transport | null = null;
@@ -87,6 +99,7 @@ interface RoomState {
   leaveRoom(): void;
   attachPlayer(adapter: PlayerAdapter): void;
   loadMembers(): Promise<void>;
+  loadChat(): Promise<void>;
   moderate(userId: string, opts: { banned?: boolean; muteSeconds?: number }): Promise<void>;
   setHost(userId: string): Promise<void>;
 
@@ -326,26 +339,24 @@ export const useRoom = create<RoomState>((set, get) => {
       }
     });
 
-    t.on("chat", (payload) => {
-      const p = payload as ChatMessage | null;
-      if (!p || p.senderId === profile.id) return;
-      const member = get().members.find((m) => m.user_id === p.senderId);
-      if (member && (member.banned || isMuted(member))) return;
-      if (!chatIn.allow(String(p.senderId || "?"))) return;
-      pushMessage(
-        set,
-        get,
-        {
-          id: clampText(p.id, 64) || randomId(),
-          senderId: clampText(p.senderId, 64),
-          name: clampText(p.name, 40) || "Guest",
-          color: typeof p.color === "number" ? p.color : 30,
-          text: clampText(p.text, 500),
-          ts: typeof p.ts === "number" ? p.ts : Date.now(),
-        },
-        true,
-      );
-    });
+    // Chat arrives via the database (durable, rate-limited, RLS-checked) —
+    // the same channel streams INSERTs as it once did broadcasts.
+    channel.on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "chat_messages", filter: `room_code=eq.${code}` },
+      (payload) => {
+        const row = payload.new as ChatRow | null;
+        if (!row) return;
+        if (row.sender_id === profile.id) {
+          // Local echo was already added optimistically — dedupe by id.
+          if (get().messages.some((m) => m.id === row.id)) return;
+        }
+        const member = get().members.find((m) => m.user_id === row.sender_id);
+        if (member && member.banned) return;
+        if (!chatIn.allow(String(row.sender_id || "?"))) return;
+        pushMessage(set, get, rowToChat(row), row.sender_id !== profile.id);
+      },
+    );
 
     t.on("reaction", (payload) => {
       const p = payload as ReactionEvent | null;
@@ -466,6 +477,7 @@ export const useRoom = create<RoomState>((set, get) => {
             joinedAt: Date.now(),
           });
           void get().loadMembers();
+          void get().loadChat();
           engine?.requestSync();
           if (!settled) {
             settled = true;
@@ -515,6 +527,23 @@ export const useRoom = create<RoomState>((set, get) => {
         .select("*")
         .eq("room_code", s.code);
       if (data && get().code === s.code) set({ members: data as MembershipRow[] });
+    },
+
+    async loadChat() {
+      const s = get();
+      const supabase = getSupabase();
+      if (!s.code || !supabase) return;
+      const { data } = await supabase
+        .from("chat_messages")
+        .select("*")
+        .eq("room_code", s.code)
+        .order("created_at", { ascending: false })
+        .limit(CHAT_TRIM);
+      if (!data || get().code !== s.code) return;
+      const history = (data as ChatRow[]).map(rowToChat).reverse();
+      const seen = new Set(get().messages.map((m) => m.id));
+      const merged = [...history.filter((m) => !seen.has(m.id)), ...get().messages];
+      set({ messages: merged.slice(-CHAT_TRIM) });
     },
 
     async moderate(userId, opts) {
@@ -681,8 +710,10 @@ export const useRoom = create<RoomState>((set, get) => {
 
     sendChat(text) {
       const profile = selfProfile;
-      if (!profile || !transport || !text.trim()) return;
-      const selfMember = get().members.find((m) => m.user_id === profile.id);
+      const s = get();
+      const supabase = getSupabase();
+      if (!profile || !s.code || !supabase || !text.trim()) return;
+      const selfMember = s.members.find((m) => m.user_id === profile.id);
       if (isMuted(selfMember)) {
         get().pushToast("You're muted", "error");
         return;
@@ -699,8 +730,29 @@ export const useRoom = create<RoomState>((set, get) => {
         text: text.trim().slice(0, 500),
         ts: Date.now(),
       };
-      void transport.send("chat", msg);
-      pushMessage(set, get, msg, false);
+      void supabase
+        .from("chat_messages")
+        .insert({
+          id: msg.id,
+          room_code: s.code,
+          sender_id: msg.senderId,
+          sender_name: msg.name,
+          color: msg.color,
+          text: msg.text,
+        })
+        .then(({ error }: { error: { message?: string } | null }) => {
+          if (!error) {
+            pushMessage(set, get, msg, false);
+            return;
+          }
+          if (String(error.message || "").includes("chat_rate_limited")) {
+            get().pushToast("You're messaging too fast", "error");
+          } else if (String(error.message || "").includes("muted_until")) {
+            get().pushToast("You're muted", "error");
+          } else {
+            get().pushToast("Message not sent", "error");
+          }
+        });
     },
 
     react(emoji) {

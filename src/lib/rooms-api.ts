@@ -31,6 +31,16 @@ export interface MembershipRow {
   last_seen: string;
 }
 
+export interface ChatRow {
+  id: string;
+  room_code: string;
+  sender_id: string;
+  sender_name: string;
+  color: number;
+  text: string;
+  created_at: string;
+}
+
 export class RoomError extends Error {
   readonly code: string;
   readonly silent?: boolean;

@@ -25,7 +25,7 @@ You can also skip `.env.local` entirely — on first run the app shows a setup o
 1. Create a free project at [supabase.com](https://supabase.com)
 2. **Project Settings → API** → copy the Project URL and anon public key
 3. Anonymous sign-in must be enabled (it is by default under **Authentication → Providers → Anonymous**)
-4. **Apply the database migration** — paste [`supabase/migrations/0001_server_authority.sql`](supabase/migrations/0001_server_authority.sql) into the SQL editor (or `supabase db push` if you use the CLI). The app does not work without it: rooms, membership, and host authority live in Postgres.
+4. **Apply the database migrations** — paste [`supabase/migrations/0001_server_authority.sql`](supabase/migrations/0001_server_authority.sql) then [`0002_chat.sql`](supabase/migrations/0002_chat.sql) into the SQL editor (or `supabase db push` if you use the CLI). The app does not work without them: rooms, membership, host authority, and chat history live in Postgres.
 
 ## Voice chat (optional)
 
@@ -70,8 +70,9 @@ Each room is a Supabase Realtime channel. Playback state (video id, timestamp, p
 - **Settings/queue writes are RLS-gated** to `host_id` — a modified client calling `update rooms` is rejected by Postgres (0 rows affected).
 - **Joining is validated server-side** by `join_room()`: room exists, optional bcrypt password matches, room not locked, caller not banned. Room codes are 6 chars from a 32-char alphabet (~1B combinations), generated with `gen_random_bytes`.
 - **Moderation is server-side**: hosts ban/unban, mute (5 min), and transfer hosting via `moderate_member()` / the RLS-guarded `host_id` update. Banned users are ejected live via the `room_members` stream; muted users' chat/reactions are dropped by receivers and senders alike.
+- **Chat is durable and server-validated**: messages insert into `chat_messages` (RLS: active members only, sender must be you, mute enforced in the policy, 5 msgs/5s via trigger) and stream to everyone over the same channel — late joiners load history.
 - **Playback control** travels over Realtime broadcasts for latency; receivers reject any `control`/`snapshot` whose `senderId` is not the Postgres host while playback is host-locked (or when guest control is unlocked, any member may control — they're already inside the authenticated room channel). Realtime broadcasts are not cryptographically signed, so a determined attacker inside a room can forge *ephemeral* playback events from the host's ID; they still cannot change host, queue, permissions, membership, or moderation state. Report issues that improve this (e.g. signed control tokens) via PRs.
-- **Rate limits:** 5 room creations/minute/user (SQL), per-connection broadcast cap of 20 events/s (Supabase), plus per-identity budgets on both sides of the wire — chat 5/5s, reactions 6-8/3s, queue requests 6/min, control coalesced to ≤1 per 150ms outbound and ≤12/s inbound per sender, sync-request ≤1/3s, toast dedupe/gap. Server-side chat limits land with chat persistence.
+- **Rate limits:** 5 room creations/minute/user (SQL), chat 5 msgs/5s (SQL trigger — modified clients can't bypass it), per-connection broadcast cap of 20 events/s (Supabase), plus per-identity budgets on both sides of the wire — chat client-side 5/5s + 500ms gap, reactions 6-8/3s, queue requests 6/min, control coalesced to ≤1 per 150ms outbound and ≤12/s inbound per sender, sync-request ≤1/3s, toast dedupe/gap.
 
 ## Project layout
 
