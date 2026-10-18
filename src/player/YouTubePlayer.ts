@@ -52,7 +52,6 @@ export class YouTubePlayer implements PlayerAdapter {
   private captions = captionsEnabled();
   private suppressLoop: number | null = null;
   private destroyed = false;
-  private destroyed = false;
 
   constructor(host: HTMLElement) {
     this.host = host;
