@@ -1,0 +1,48 @@
+name: Preview deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_LIVEKIT_URL: ${{ secrets.VITE_LIVEKIT_URL }}
+        run: npm run build
+      # Exactly one provider runs; with no secrets configured the job
+      # still builds and skips politely. Vercel pulls its own preview env
+      # from project settings; Netlify gets the CI-built bundle with env
+      # baked in.
+      - name: Deploy to Vercel (preview)
+        if: ${{ env.VERCEL_TOKEN != '' }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npx --yes vercel@latest pull --environment=preview --yes --token "$VERCEL_TOKEN"
+          npx --yes vercel@latest build --token "$VERCEL_TOKEN"
+          npx --yes vercel@latest deploy --prebuilt --yes --token "$VERCEL_TOKEN"
+      - name: Deploy to Netlify (draft)
+        if: ${{ env.NETLIFY_AUTH_TOKEN != '' }}
+        env:
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          npx --yes netlify-cli@latest deploy \
+            --dir dist \
+            --auth "$NETLIFY_AUTH_TOKEN" \
+            --site "$NETLIFY_SITE_ID"
