@@ -125,6 +125,18 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
         seekTo(clamp(next, 0, max));
         return;
       }
+      if (e.code === "ArrowUp" || e.code === "ArrowDown") {
+        if (disabled) return;
+        e.preventDefault();
+        const step = e.code === "ArrowUp" ? 5 : -5;
+        const next = clamp(volume + step, 0, 100);
+        setVolume(next);
+        if (next > 0 && muted) {
+          setMuted(false);
+          player?.setMuted(false);
+        }
+        return;
+      }
       if (e.code === "KeyF") {
         if (disabled) return;
         e.preventDefault();
@@ -149,7 +161,7 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [togglePlayback, requestControl, seekTo, canControl, disabled, player, duration, muted, onToggleTheater]);
+  }, [togglePlayback, requestControl, seekTo, canControl, disabled, player, duration, muted, volume, onToggleTheater]);
 
   function onSeekCommit() {
     setSeeking(false);
@@ -314,6 +326,13 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
                   <kbd>F</kbd>
                 </span>
                 <span>Fullscreen</span>
+              </li>
+              <li>
+                <span className="help-keys">
+                  <kbd>↑</kbd>
+                  <kbd>↓</kbd>
+                </span>
+                <span>Volume up / down</span>
               </li>
               <li>
                 <span className="help-keys">
