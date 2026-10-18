@@ -509,6 +509,76 @@ a {
   cursor: pointer;
 }
 
+/* End-of-video countdown to the next queued video (all clients), with a
+   host-only "Play now". */
+.up-next {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 32px);
+  padding: 8px 10px;
+  background: rgba(12, 10, 9, 0.92);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  animation: upnext-in 0.25s ease;
+}
+
+@keyframes upnext-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.up-next-thumb {
+  width: 72px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex: none;
+  background: #000;
+}
+
+.up-next-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.up-next-label {
+  font-size: 0.7rem;
+  color: var(--accent);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.up-next-title {
+  font-size: 0.82rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.up-next-skip {
+  flex: none;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+}
+
 .empty-state {
   position: absolute;
   inset: 0;

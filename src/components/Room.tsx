@@ -39,7 +39,19 @@ export default function Room() {
   const name = useSession((s) => s.profile?.name) || "";
   const togglePlayback = useRoom((s) => s.togglePlayback);
   const requestControl = useRoom((s) => s.requestControl);
+  const upNext = useRoom((s) => s.upNext);
+  const skipUpNext = useRoom((s) => s.skipUpNext);
+  const hostId = useRoom((s) => s.hostId);
+  const myId = useSession((s) => s.profile?.id);
+  const isHost = !!myId && hostId === myId;
+  const [nowTs, setNowTs] = useState(() => Date.now());
   const hotTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!upNext) return;
+    const iv = setInterval(() => setNowTs(Date.now()), 250);
+    return () => clearInterval(iv);
+  }, [upNext]);
 
   useEffect(
     () => () => {
@@ -170,17 +182,44 @@ export default function Room() {
                   <div className="spinner" />
                 </div>
               )}
-              <div className="reaction-layer">
-                {floating.map((f) => (
-                  <span
-                    key={f.id}
-                    className="floating-reaction"
-                    style={{ "--lane": f.lane } as CSSProperties}
-                  >
-                    {f.emoji}
+            <div className="reaction-layer">
+              {floating.map((f) => (
+                <span
+                  key={f.id}
+                  className="floating-reaction"
+                  style={{ "--lane": f.lane } as CSSProperties}
+                >
+                  {f.emoji}
+                </span>
+              ))}
+            </div>
+            {upNext && (
+              <div className="up-next" role="status" aria-live="polite">
+                <img
+                  className="up-next-thumb"
+                  alt=""
+                  src={`https://i.ytimg.com/vi/${upNext.item.videoId}/mqdefault.jpg`}
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+                <div className="up-next-info">
+                  <span className="up-next-label">
+                    Up next in {Math.max(0, Math.ceil((upNext.endsAt - nowTs) / 1000))}s
                   </span>
-                ))}
+                  <span className="up-next-title">{upNext.item.title || upNext.item.videoId}</span>
+                </div>
+                {isHost && (
+                  <button
+                    type="button"
+                    className="btn primary up-next-skip"
+                    onClick={() => skipUpNext()}
+                  >
+                    Play now
+                  </button>
+                )}
               </div>
+            )}
             </div>
 
             <Controls

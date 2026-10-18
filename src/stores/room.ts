@@ -90,6 +90,7 @@ let engine: SyncEngine | null = null;
 let playerAdapter: PlayerAdapter | null = null;
 /** Video id the local player was last told to show (engine or fallback). */
 let localLoadedVideoId: string | null = null;
+let upNextTimer: ReturnType<typeof setTimeout> | null = null;
 let channelUnsubscribe: (() => void) | null = null;
 let driftTimer: ReturnType<typeof setInterval> | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -125,6 +126,7 @@ interface RoomState {
   floating: FloatingReaction[];
   toasts: ToastItem[];
   typing: Record<string, { name: string; at: number }>;
+  upNext: { item: QueueItem; endsAt: number } | null;
 
   createRoom(profile: Profile, password?: string | null): Promise<void>;
   joinRoom(code: string, profile: Profile, password?: string | null): Promise<void>;
@@ -152,6 +154,7 @@ interface RoomState {
   playFromQueue(id: string): void;
   moveQueue(from: number, to: number): void;
   voteQueue(itemId: string): Promise<void>;
+  skipUpNext(): void;
   toggleGuestControls(): void;
   toggleRoomLock(): Promise<void>;
   requestControl(): void;
@@ -220,6 +223,7 @@ export const useRoom = create<RoomState>((set, get) => {
     }
     set(next);
     if (row.video_id !== s.videoId) {
+      clearUpNext();
       engine?.requestSync();
       scheduleSelfSyncFallback(row.video_id);
     }
@@ -361,12 +365,45 @@ export const useRoom = create<RoomState>((set, get) => {
     void publishSnapshot();
   }
 
+  /**
+   * Every client detects ENDED locally (players stay in sync), so all of
+   * them show the same 5s "Up next" countdown derived from queue[0]; only
+   * the host actually advances (timer or "Play now"), and the resulting
+   * video change clears everyone else's overlay.
+   */
   function handleEnded(): void {
+    startUpNext();
+  }
+
+  function startUpNext(): void {
     const s = get();
-    if (selfProfile?.id !== s.hostId) return;
-    const next = s.queue[0];
-    if (!next || !engine) return;
-    set({ queue: s.queue.slice(1) });
+    if (s.upNext || !s.queue[0]) return;
+    set({ upNext: { item: s.queue[0], endsAt: Date.now() + 5000 } });
+    upNextTimer = setTimeout(() => {
+      upNextTimer = null;
+      advanceFromQueue();
+    }, 5200);
+  }
+
+  function clearUpNext(): void {
+    if (upNextTimer) clearTimeout(upNextTimer);
+    upNextTimer = null;
+    if (get().upNext) set({ upNext: null });
+  }
+
+  /** Host: play the item the overlay announced (falls back to queue head). */
+  function advanceFromQueue(): void {
+    const shown = get().upNext?.item ?? null;
+    clearUpNext();
+    const s = get();
+    if (!selfProfile || selfProfile.id !== s.hostId || !engine) return;
+    const list = s.queue.slice();
+    const idx = shown ? list.findIndex((q) => q.id === shown.id) : -1;
+    let next: QueueItem;
+    if (idx >= 0) next = list.splice(idx, 1)[0];
+    else if (list.length) next = list.splice(0, 1)[0];
+    else return;
+    set({ queue: list });
     engine.localLoad(next.videoId, true);
     recordWatched(next.videoId, next.title);
     get().pushToast(`Up next: ${next.title || "video"}`);
@@ -704,6 +741,7 @@ export const useRoom = create<RoomState>((set, get) => {
     floating: [],
     toasts: [],
     typing: {},
+    upNext: null,
 
     async loadMembers() {
       const s = get();
@@ -853,6 +891,7 @@ export const useRoom = create<RoomState>((set, get) => {
         members: [],
         floating: [],
         typing: {},
+        upNext: null,
       });
       selfProfile = p;
       await connect(code, p);
@@ -906,6 +945,7 @@ export const useRoom = create<RoomState>((set, get) => {
         drift: null,
         floating: [],
         typing: {},
+        upNext: null,
       });
       const url = new URL(location.href);
       url.searchParams.delete("room");
@@ -955,6 +995,7 @@ export const useRoom = create<RoomState>((set, get) => {
         return;
       }
       engine?.localLoad(id, true);
+      clearUpNext();
       if (selfProfile?.id === s.hostId && s.code) {
         void saveRoomSettings(s.code, { video_id: id });
         void fetchVideoTitle(id).then((title) => recordWatched(id, title));
@@ -1220,6 +1261,10 @@ export const useRoom = create<RoomState>((set, get) => {
       } catch {
         /* not_found (item just removed) or not_member — drop silently */
       }
+    },
+
+    skipUpNext() {
+      advanceFromQueue();
     },
 
     toggleGuestControls() {
