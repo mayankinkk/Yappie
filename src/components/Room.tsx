@@ -11,6 +11,7 @@ import WatchHistory from "./WatchHistory";
 import ReactionsBar from "./ReactionsBar";
 import VoiceBar from "./VoiceBar";
 import { watchUrl } from "../lib/video-id";
+import { toggleCinemaFullscreen } from "../lib/fullscreen";
 import { soundEnabled, setSoundEnabled, playSound } from "../lib/sound";
 import { canControlNow } from "../stores/room";
 
@@ -36,6 +37,41 @@ export default function Room() {
   const hostRef = useRef<HTMLDivElement>(null);
   const [sound, setSound] = useState(soundEnabled());
   const name = useSession((s) => s.profile?.name) || "";
+  const togglePlayback = useRoom((s) => s.togglePlayback);
+  const requestControl = useRoom((s) => s.requestControl);
+  const hotTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (hotTimer.current !== null) window.clearTimeout(hotTimer.current);
+    },
+    [],
+  );
+
+  // Transparent layer over the YouTube iframe (which swallows all pointer
+  // events): single click toggles playback with a 240ms delay so a double
+  // click can cancel it; double click toggles fullscreen — like YouTube.
+  function onHotClick() {
+    if (hotTimer.current !== null) {
+      window.clearTimeout(hotTimer.current);
+      hotTimer.current = null;
+      return;
+    }
+    hotTimer.current = window.setTimeout(() => {
+      hotTimer.current = null;
+      if (!videoId) return;
+      if (canControlNow()) togglePlayback();
+      else requestControl();
+    }, 240);
+  }
+
+  function onHotDoubleClick() {
+    if (hotTimer.current !== null) {
+      window.clearTimeout(hotTimer.current);
+      hotTimer.current = null;
+    }
+    toggleCinemaFullscreen();
+  }
 
   useEffect(() => {
     const host = hostRef.current;
@@ -120,6 +156,9 @@ export default function Room() {
           <div className="cinema">
             <div className="player-wrap">
               <div ref={hostRef} className="player-host" />
+            {videoId && (
+              <div className="video-hotzone" onClick={onHotClick} onDoubleClick={onHotDoubleClick} />
+            )}
               {!videoId && (
                 <div className="empty-state">
                   <div className="big">No video yet</div>

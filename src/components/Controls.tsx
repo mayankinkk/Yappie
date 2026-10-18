@@ -3,6 +3,7 @@ import type { YouTubePlayer } from "../player/YouTubePlayer";
 import { useRoom } from "../stores/room";
 import { useSession } from "../stores/session";
 import { formatTime, clamp } from "../lib/time";
+import { toggleCinemaFullscreen, activeFullscreenElement } from "../lib/fullscreen";
 
 interface Props {
   player: YouTubePlayer | null;
@@ -47,7 +48,7 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
   }, [player, volume]);
 
   useEffect(() => {
-    const onChange = () => setFsActive(!!document.fullscreenElement);
+    const onChange = () => setFsActive(!!activeFullscreenElement());
     document.addEventListener("fullscreenchange", onChange);
     document.addEventListener("webkitfullscreenchange", onChange);
     return () => {
@@ -158,23 +159,7 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
   }
 
   function toggleFullscreen() {
-    // .controls is a sibling of .player-wrap — fullscreen the .cinema
-    // wrapper that holds both, so the video (not just the bar) fills the screen.
-    const wrap = controlsRef.current?.closest(".cinema") as
-      | (HTMLElement & { webkitRequestFullscreen?: () => void })
-      | null;
-    const fsDoc = document as Document & {
-      webkitFullscreenElement?: Element | null;
-      webkitExitFullscreen?: () => Promise<void> | void;
-    };
-    const active = document.fullscreenElement || fsDoc.webkitFullscreenElement;
-    if (active) {
-      if (document.exitFullscreen) void document.exitFullscreen();
-      else void fsDoc.webkitExitFullscreen?.();
-      return;
-    }
-    if (wrap?.requestFullscreen) void wrap.requestFullscreen();
-    else wrap?.webkitRequestFullscreen?.();
+    toggleCinemaFullscreen();
   }
 
   return (

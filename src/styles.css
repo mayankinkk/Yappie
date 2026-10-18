@@ -500,6 +500,15 @@ a {
   height: 100%;
 }
 
+/* Click layer over the iframe (the embed swallows pointer events):
+   click = play/pause, double click = fullscreen. */
+.video-hotzone {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  cursor: pointer;
+}
+
 .empty-state {
   position: absolute;
   inset: 0;
