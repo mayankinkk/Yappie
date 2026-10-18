@@ -147,9 +147,17 @@ export class SyncEngine {
     const videoId = this.opts.getVideoId();
     if (!videoId) return;
     const time = this.opts.player.ready() ? this.opts.player.getTime() : this.localRef.time;
-    const playing = this.opts.player.ready()
-      ? this.opts.player.isPlaying()
-      : this.localRef.playing;
+    // playVideo()/pauseVideo() apply asynchronously (state can still be CUED
+    // or BUFFERING right after a fresh load), so trust the user's intent for
+    // play/pause instead of the not-yet-updated player state.
+    const playing =
+      action === "play"
+        ? true
+        : action === "pause"
+          ? false
+          : this.opts.player.ready()
+            ? this.opts.player.isPlaying()
+            : this.localRef.playing;
     const { selfId } = this.opts.getRole();
     this.localRef = { videoId, time, playing, sentAt: nowMs() };
     this.opts.onLocalState({ videoId, time, playing });
