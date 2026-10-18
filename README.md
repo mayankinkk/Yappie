@@ -55,7 +55,9 @@ The function also needs `SUPABASE_URL` and `SUPABASE_ANON_KEY` (auto-injected by
 
 `npm run test:e2e` opens **two isolated browser contexts** (separate storage → separate anonymous users, like two friends on two laptops) and verifies the full flow over a live Supabase project: room create/join, presence, chat round-trip through Postgres, host playback lock, queue sync, invite-only lock rejection, and the room-password prompt (wrong vs right password). First run: `npx playwright install chromium`.
 
-CI runs lint + typecheck + unit tests + build on every push; the E2E suite runs locally (it needs real Supabase credentials).
+CI runs lint + typecheck + unit tests + build on every push, and the **E2E suite runs in CI too** (job `e2e` in `ci.yml`) against the live Supabase project — it needs the `SUPABASE_URL` and `SUPABASE_ANON_KEY` repository secrets, and uploads Playwright traces as artifacts on failure. Locally: `npm run test:e2e` (first run: `npx playwright install chromium`).
+
+**Error monitoring**: with `VITE_SENTRY_DSN` set, errors go to Sentry (unhandled errors, rejections, React render failures). Without a DSN the app degrades to a zero-config fallback — console plus insert into the `client_errors` table (deduped, first 10 per session). Inspect with `select * from client_errors order by created_at desc limit 50;`.
 
 ## Deploy
 
