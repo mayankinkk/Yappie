@@ -10,3 +10,5 @@ supabase/.temp/
 
 # local artifacts
 *.apk
+.vercel
+.env*

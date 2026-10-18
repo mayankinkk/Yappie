@@ -65,7 +65,7 @@ Static hosting, no server needed:
 - **Netlify**: `netlify deploy --prod` (config in `netlify.toml`)
 - **GitHub Pages**: `npm run build` then publish `dist/`
 
-**Preview deploys on push** come from the `Preview deploy` GitHub Actions workflow: every push to `main` and every PR builds the app and publishes it to Vercel (preview URL) or Netlify (draft URL) — whichever secrets you configure, so setup is optional. Required secrets: `VERCEL_TOKEN` + `VERCEL_ORG_ID` + `VERCEL_PROJECT_ID` for Vercel, or `NETLIFY_AUTH_TOKEN` + `NETLIFY_SITE_ID` for Netlify. Optional at build time: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_LIVEKIT_URL` (Vercel reads these from project settings instead; without them visitors get the in-app setup overlay).
+**Deploys**: the GitHub repo is connected to Vercel, so every push to `main` goes straight to production and every PR gets an automatic preview URL — no workflow required. The `Preview deploy` GitHub Actions workflow remains as an optional fallback (Netlify, or setups without the Vercel Git integration); it skips itself unless `VERCEL_*` or `NETLIFY_*` secrets are configured. Build-time env: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_LIVEKIT_URL` (Vercel reads these from project settings instead; without them visitors get the in-app setup overlay).
 
 After you know your production URL, add `og:url` and `og:image` (absolute URLs — e.g. `/icons/icon-512.png` served from your domain) to `index.html` for richer link previews.
 
