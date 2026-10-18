@@ -51,14 +51,21 @@ function reportFallback(message: string, stack?: string, source?: string): void 
   const supabase = getSupabase();
   if (!supabase) return;
   const room = new URLSearchParams(location.search).get("room");
-  void supabase.from("client_errors").insert({
-    message: key,
-    stack: (stack || "").slice(0, 2000),
-    source: source || null,
-    url: location.href.slice(0, 500),
-    room_code: room,
-    user_agent: navigator.userAgent.slice(0, 400),
-  });
+  void supabase
+    .from("client_errors")
+    .insert({
+      message: key,
+      stack: (stack || "").slice(0, 2000),
+      source: source || null,
+      url: location.href.slice(0, 500),
+      room_code: room,
+      user_agent: navigator.userAgent.slice(0, 400),
+    })
+    // Postgrest builders only fire on .then() — swallow, telemetry is best-effort.
+    .then(
+      () => undefined,
+      () => undefined,
+    );
 }
 
 export function captureError(error: unknown, context?: Record<string, unknown>): void {
