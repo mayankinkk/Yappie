@@ -44,6 +44,7 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
       const input = document.getElementById("name-input") as HTMLInputElement | null;
       input?.focus();
       setShake((s) => s + 1);
+      pushToast("Enter your name first", "error");
       return false;
     }
     return true;
@@ -75,6 +76,7 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
     const pw = createProtected && roomPassword.trim() ? roomPassword.trim() : null;
     if (createProtected && !pw) {
       setShake((s) => s + 1);
+      pushToast("Enter a room password", "error");
       return;
     }
     setBusy(true);
@@ -92,6 +94,7 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
     if (!requireName() || !requireSetup()) return;
     if (clean.length !== 6) {
       setShake((s) => s + 1);
+      pushToast("Room codes are 6 characters", "error");
       return;
     }
     setBusy(true);
