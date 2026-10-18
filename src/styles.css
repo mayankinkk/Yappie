@@ -1283,6 +1283,45 @@ input[type="range"].volume:disabled {
   border-color: var(--accent);
 }
 
+.queue-vote {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  padding: 4px 7px;
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    color 0.12s,
+    background 0.12s;
+}
+
+.queue-vote:hover {
+  border-color: var(--muted);
+  color: var(--text);
+}
+
+.queue-vote.voted {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.queue-vote-arrow {
+  font-size: 0.62rem;
+  line-height: 1;
+}
+
+.queue-vote-count:empty {
+  display: none;
+}
+
 .queue-index {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.75rem;

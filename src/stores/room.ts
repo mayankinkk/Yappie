@@ -27,6 +27,7 @@ import {
   moderateMemberRpc,
   deleteChatMessageRpc,
   toggleChatReactionRpc,
+  voteQueueRpc,
   saveRoomSettings,
   type ChatRow,
   type JoinedRoom,
@@ -50,6 +51,7 @@ const chatOut = new RateLimiter(5, 5000);
 const chatOutGap = new MinGap(500);
 const reactionOut = new RateLimiter(6, 3000);
 const queueAddOut = new RateLimiter(6, 60_000);
+const voteOut = new RateLimiter(10, 10_000);
 
 // Receiver-side budgets: drop other clients' excess on arrival. These defend
 // against modified clients that skip the sender-side guards above.
@@ -147,6 +149,7 @@ interface RoomState {
   removeFromQueue(id: string): void;
   playFromQueue(id: string): void;
   moveQueue(from: number, to: number): void;
+  voteQueue(itemId: string): Promise<void>;
   toggleGuestControls(): void;
   toggleRoomLock(): Promise<void>;
   requestControl(): void;
@@ -182,6 +185,12 @@ function toQueueItem(row: QueueRow): QueueItem {
     addedBy: clampText(row.addedBy, 64),
     addedByName: clampText(row.addedByName, 40),
     addedAt: typeof row.addedAt === "number" ? row.addedAt : Date.now(),
+    votes:
+      row.votes && typeof row.votes === "object"
+        ? Object.fromEntries(
+            Object.entries(row.votes).filter(([id, v]) => id.length > 0 && v === true),
+          )
+        : {},
   };
 }
 
@@ -504,6 +513,7 @@ export const useRoom = create<RoomState>((set, get) => {
         addedBy: clampText(p.addedBy, 64),
         addedByName: clampText(p.addedByName, 40),
         addedAt: typeof p.addedAt === "number" ? p.addedAt : Date.now(),
+        votes: {},
       });
     });
     t.on("queue-remove", (payload) => handleQueueRemove(payload as { id?: string; by?: string }));
@@ -1068,6 +1078,7 @@ export const useRoom = create<RoomState>((set, get) => {
         addedBy: profile.id,
         addedByName: profile.name,
         addedAt: Date.now(),
+        votes: {},
       };
       if (s.hostId === profile.id) {
         if (s.queue.length >= QUEUE_MAX) {
@@ -1151,6 +1162,24 @@ export const useRoom = create<RoomState>((set, get) => {
       queue.splice(to, 0, item);
       set({ queue });
       void publishSnapshot();
+    },
+
+    /**
+     * Toggle own upvote on a queue item (any member, host included). The RPC
+     * returns the post-toggle queue + version, which we apply immediately;
+     * the rooms UPDATE event echoes the same state to everyone else.
+     */
+    async voteQueue(itemId) {
+      const s = get();
+      const profile = selfProfile;
+      if (!profile || !s.code) return;
+      if (!voteOut.allow(profile.id)) return;
+      try {
+        const { queue, queueVersion } = await voteQueueRpc(s.code, itemId);
+        set({ queue: queue.map(toQueueItem), queueVersion });
+      } catch {
+        /* not_found (item just removed) or not_member — drop silently */
+      }
     },
 
     toggleGuestControls() {

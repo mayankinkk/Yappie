@@ -28,6 +28,7 @@ export interface QueueItem {
   addedBy: string;
   addedByName: string;
   addedAt: number;
+  votes: Record<string, boolean>;
 }
 
 export interface PlaybackPayload {

@@ -8,6 +8,7 @@ export default function QueuePanel() {
   const playFromQueue = useRoom((s) => s.playFromQueue);
   const addToQueue = useRoom((s) => s.addToQueue);
   const moveQueue = useRoom((s) => s.moveQueue);
+  const voteQueue = useRoom((s) => s.voteQueue);
   const hostId = useRoom((s) => s.hostId);
   const myId = useSession((s) => s.profile?.id);
   const isHost = hostId === myId;
@@ -73,6 +74,17 @@ export default function QueuePanel() {
                 added by {item.addedBy === myId ? "you" : item.addedByName}
               </div>
             </div>
+            <button
+              type="button"
+              className={`queue-vote${myId && item.votes[myId] ? " voted" : ""}`}
+              title={myId && item.votes[myId] ? "Remove your vote" : "Upvote"}
+              onClick={() => void voteQueue(item.id)}
+            >
+              <span className="queue-vote-arrow">▲</span>
+              <span className="queue-vote-count">
+                {Object.keys(item.votes).length || ""}
+              </span>
+            </button>
             <div className="queue-actions">
               {isHost && (
                 <button className="queue-btn" title="Play now" onClick={() => playFromQueue(item.id)}>

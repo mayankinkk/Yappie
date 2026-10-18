@@ -26,6 +26,7 @@ export interface QueueRow {
   addedBy: string;
   addedByName: string;
   addedAt: number;
+  votes?: Record<string, boolean> | null;
 }
 
 export interface MembershipRow {
@@ -211,6 +212,23 @@ export async function toggleChatReactionRpc(
   });
   if (error) throw mapError(rpcMsg(error));
   return (data ?? {}) as Record<string, string[]>;
+}
+
+export interface VoteQueueResult {
+  queue: QueueRow[];
+  queueVersion: number;
+}
+
+export async function voteQueueRpc(code: string, itemId: string): Promise<VoteQueueResult> {
+  const supabase = getSupabase();
+  if (!supabase) throw new RoomError("config", "Connect Supabase first");
+  const { data, error } = await supabase.rpc("vote_queue_item", {
+    p_code: code,
+    p_item_id: itemId,
+  });
+  if (error) throw mapError(rpcMsg(error));
+  const raw = (data ?? {}) as { queue?: QueueRow[]; queueVersion?: number };
+  return { queue: Array.isArray(raw.queue) ? raw.queue : [], queueVersion: raw.queueVersion ?? 0 };
 }
 
 export async function saveRoomSettings(
