@@ -121,9 +121,23 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
   }
 
   function toggleFullscreen() {
-    const wrap = controlsRef.current?.closest(".player-wrap") || controlsRef.current;
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void wrap?.requestFullscreen?.();
+    // .controls is a sibling of .player-wrap — fullscreen the .cinema
+    // wrapper that holds both, so the video (not just the bar) fills the screen.
+    const wrap = controlsRef.current?.closest(".cinema") as
+      | (HTMLElement & { webkitRequestFullscreen?: () => void })
+      | null;
+    const fsDoc = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+    };
+    const active = document.fullscreenElement || fsDoc.webkitFullscreenElement;
+    if (active) {
+      if (document.exitFullscreen) void document.exitFullscreen();
+      else void fsDoc.webkitExitFullscreen?.();
+      return;
+    }
+    if (wrap?.requestFullscreen) void wrap.requestFullscreen();
+    else wrap?.webkitRequestFullscreen?.();
   }
 
   return (

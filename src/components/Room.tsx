@@ -117,38 +117,40 @@ export default function Room() {
       )}
       <div className={`main${theater ? " theater" : ""}`}>
         <section className="stage">
-          <div className="player-wrap">
-            <div ref={hostRef} className="player-host" />
-            {!videoId && (
-              <div className="empty-state">
-                <div className="big">No video yet</div>
-                <div>Paste a YouTube link below to start the party</div>
+          <div className="cinema">
+            <div className="player-wrap">
+              <div ref={hostRef} className="player-host" />
+              {!videoId && (
+                <div className="empty-state">
+                  <div className="big">No video yet</div>
+                  <div>Paste a YouTube link below to start the party</div>
+                </div>
+              )}
+              {buffering && (
+                <div className="buffering">
+                  <div className="spinner" />
+                </div>
+              )}
+              <div className="reaction-layer">
+                {floating.map((f) => (
+                  <span
+                    key={f.id}
+                    className="floating-reaction"
+                    style={{ "--lane": f.lane } as CSSProperties}
+                  >
+                    {f.emoji}
+                  </span>
+                ))}
               </div>
-            )}
-            {buffering && (
-              <div className="buffering">
-                <div className="spinner" />
-              </div>
-            )}
-            <div className="reaction-layer">
-              {floating.map((f) => (
-                <span
-                  key={f.id}
-                  className="floating-reaction"
-                  style={{ "--lane": f.lane } as CSSProperties}
-                >
-                  {f.emoji}
-                </span>
-              ))}
             </div>
-          </div>
 
-          <Controls
-            player={player}
-            playing={playing}
-            theater={theater}
-            onToggleTheater={toggleTheater}
-          />
+            <Controls
+              player={player}
+              playing={playing}
+              theater={theater}
+              onToggleTheater={toggleTheater}
+            />
+          </div>
 
           <div className="load-bar">
             <input

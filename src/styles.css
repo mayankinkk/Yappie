@@ -452,6 +452,39 @@ a {
   min-width: 0;
 }
 
+.cinema {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Fullscreen target: player fills the screen, controls dock at the bottom. */
+.cinema:fullscreen,
+.cinema:-webkit-full-screen {
+  width: 100%;
+  height: 100%;
+  background: #000;
+  gap: 0;
+}
+
+.cinema:fullscreen .player-wrap,
+.cinema:-webkit-full-screen .player-wrap {
+  flex: 1 1 auto;
+  aspect-ratio: auto;
+  border: none;
+  border-radius: 0;
+}
+
+.cinema:fullscreen .controls,
+.cinema:-webkit-full-screen .controls {
+  flex: none;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+}
+
 .player-wrap {
   position: relative;
   aspect-ratio: 16 / 9;
