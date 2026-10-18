@@ -93,6 +93,7 @@ export interface PlayerAdapter {
   isPlaying(): boolean;
   setMuted(muted: boolean): void;
   setVolume(volume: number): void;
+  setCaptionsEnabled(on: boolean): void;
   destroy(): void;
   onLocalEvent(cb: (e: PlayerLocalEvent) => void): void;
 }

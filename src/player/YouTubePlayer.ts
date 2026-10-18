@@ -1,5 +1,12 @@
 import type { PlayerAdapter, PlayerLocalEvent } from "../types";
 import { needsNativeYoutubeControls } from "../lib/fullscreen";
+import { captionsEnabled } from "../lib/captions";
+
+// loadModule/unloadModule exist on the real player but not in @types/youtube.
+type ModuleCapable = YT.Player & {
+  loadModule?: (name: string) => void;
+  unloadModule?: (name: string) => void;
+};
 
 declare global {
   interface Window {
@@ -42,9 +49,40 @@ export class YouTubePlayer implements PlayerAdapter {
   private currentVideoId: string | null = null;
   private muted = false;
   private volume = 100;
+  private captions = captionsEnabled();
+  private suppressLoop: number | null = null;
 
   constructor(host: HTMLElement) {
     this.host = host;
+  }
+
+  // unloadModule kills the captions module, but YouTube re-fetches caption
+  // data when a video loads — observed captions creeping back ~5s after a
+  // load. Re-suppress on an interval for a bounded window after playback
+  // starts, then stop (harmless no-op calls when already suppressed).
+  private suppressCaptions(): void {
+    const p = this.player as ModuleCapable | null;
+    if (!p) return;
+    try {
+      p.unloadModule?.("captions");
+      p.unloadModule?.("cc");
+    } catch {
+      /* module API unavailable */
+    }
+  }
+
+  private startSuppressLoop(): void {
+    this.stopSuppressLoop();
+    this.suppressCaptions();
+    this.suppressLoop = window.setInterval(() => this.suppressCaptions(), 2000);
+    window.setTimeout(() => this.stopSuppressLoop(), 20000);
+  }
+
+  private stopSuppressLoop(): void {
+    if (this.suppressLoop !== null) {
+      window.clearInterval(this.suppressLoop);
+      this.suppressLoop = null;
+    }
   }
 
   async init(): Promise<void> {
@@ -65,9 +103,11 @@ export class YouTubePlayer implements PlayerAdapter {
           this.readyState = true;
           if (this.muted) this.player?.mute();
           this.player?.setVolume(this.volume);
+          if (!this.captions) this.startSuppressLoop();
           this.cb?.({ type: "ready" });
         },
         onStateChange: (e) => {
+          if (e.data === YT.PlayerState.PLAYING && !this.captions) this.startSuppressLoop();
           if (e.data === YT.PlayerState.ENDED) this.cb?.({ type: "ended" });
         },
         onError: (e) => {
@@ -129,11 +169,27 @@ export class YouTubePlayer implements PlayerAdapter {
     this.player.setVolume(this.volume);
   }
 
+  setCaptionsEnabled(on: boolean): void {
+    this.captions = on;
+    if (!on) {
+      if (this.readyState) this.startSuppressLoop();
+      return;
+    }
+    this.stopSuppressLoop();
+    if (!this.player || !this.readyState) return;
+    try {
+      (this.player as ModuleCapable).loadModule?.("captions");
+    } catch {
+      /* module API unavailable */
+    }
+  }
+
   getCurrentVideoId(): string | null {
     return this.currentVideoId;
   }
 
   destroy(): void {
+    this.stopSuppressLoop();
     try {
       this.player?.destroy();
     } catch {

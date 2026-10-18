@@ -4,6 +4,7 @@ import { useRoom } from "../stores/room";
 import { useSession } from "../stores/session";
 import { formatTime, clamp } from "../lib/time";
 import { toggleCinemaFullscreen, activeFullscreenElement } from "../lib/fullscreen";
+import { captionsEnabled, setCaptionsEnabled } from "../lib/captions";
 
 interface Props {
   player: YouTubePlayer | null;
@@ -36,6 +37,7 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
     clamp(Number(localStorage.getItem("sofa.volume") ?? "100") || 0, 0, 100),
   );
   const [seeking, setSeeking] = useState(false);
+  const [caps, setCaps] = useState(captionsEnabled);
   const [showHelp, setShowHelp] = useState(false);
   const [fsActive, setFsActive] = useState(false);
   const [fsIdle, setFsIdle] = useState(false);
@@ -150,6 +152,11 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
         setMuted(next);
         player?.setMuted(next);
       }
+      if (e.code === "KeyC") {
+        if (disabled) return;
+        e.preventDefault();
+        toggleCaptions();
+      }
       if (e.code === "KeyT") {
         e.preventDefault();
         onToggleTheater();
@@ -161,7 +168,14 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [togglePlayback, requestControl, seekTo, canControl, disabled, player, duration, muted, volume, onToggleTheater]);
+  }, [togglePlayback, requestControl, seekTo, canControl, disabled, player, duration, muted, volume, caps, onToggleTheater]);
+
+  function toggleCaptions() {
+    const next = !caps;
+    setCaps(next);
+    setCaptionsEnabled(next);
+    player?.setCaptionsEnabled(next);
+  }
 
   function onSeekCommit() {
     setSeeking(false);
@@ -253,6 +267,25 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
         style={{ "--fill": String(volume) } as CSSProperties}
         onChange={(e) => setVolume(Number(e.target.value))}
       />
+      <button
+        className={`ctrl-btn cc-btn${caps ? " active" : ""}`}
+        title={caps ? "Captions on (C)" : "Captions off (C)"}
+        aria-label="Captions"
+        aria-pressed={caps}
+        disabled={disabled}
+        onClick={toggleCaptions}
+      >
+        <svg viewBox="0 0 24 24">
+          <rect x="3" y="5" width="18" height="14" rx="3" fill="none" stroke="currentColor" strokeWidth="1.6" />
+          <path
+            d="M10.5 10.5a2.5 2.5 0 1 0 0 3M17 10.5a2.5 2.5 0 1 0 0 3"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+          />
+        </svg>
+      </button>
       <button className="ctrl-btn" title="Fullscreen (F)" disabled={disabled} onClick={toggleFullscreen}>
         <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg>
       </button>
@@ -339,6 +372,12 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
                   <kbd>M</kbd>
                 </span>
                 <span>Mute</span>
+              </li>
+              <li>
+                <span className="help-keys">
+                  <kbd>C</kbd>
+                </span>
+                <span>Captions on / off</span>
               </li>
               <li>
                 <span className="help-keys">

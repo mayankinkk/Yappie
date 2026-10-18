@@ -931,6 +931,12 @@ a {
   background: #fbbf24;
 }
 
+.ctrl-btn.cc-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .ctrl-btn svg {
   width: 18px;
   height: 18px;
