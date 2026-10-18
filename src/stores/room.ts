@@ -29,6 +29,7 @@ import {
   toggleChatReactionRpc,
   voteQueueRpc,
   saveRoomSettings,
+  type AuditRow,
   type ChatRow,
   type JoinedRoom,
   type MembershipRow,
@@ -65,6 +66,16 @@ function isMuted(row: MembershipRow | undefined): boolean {
   return !!row?.muted_until && Date.parse(row.muted_until) > Date.now();
 }
 
+export interface AuditEntry {
+  id: number;
+  action: string;
+  actorName: string;
+  targetId: string | null;
+  targetName: string | null;
+  detail: string | null;
+  createdAt: number;
+}
+
 function rowToChat(row: ChatRow): ChatMessage {
   return {
     id: clampText(row.id, 64) || randomId(),
@@ -82,6 +93,18 @@ function rowToChat(row: ChatRow): ChatMessage {
             ]),
           )
         : {},
+  };
+}
+
+function rowToAudit(row: AuditRow): AuditEntry {
+  return {
+    id: Number(row.id) || 0,
+    action: clampText(row.action, 32),
+    actorName: clampText(row.actor_name, 40) || "Host",
+    targetId: row.target_id ? clampText(row.target_id, 64) : null,
+    targetName: row.target_name ? clampText(row.target_name, 40) : null,
+    detail: row.detail ? clampText(row.detail, 80) : null,
+    createdAt: Date.parse(row.created_at) || Date.now(),
   };
 }
 
@@ -127,6 +150,7 @@ interface RoomState {
   toasts: ToastItem[];
   typing: Record<string, { name: string; at: number }>;
   upNext: { item: QueueItem; endsAt: number } | null;
+  audit: AuditEntry[];
 
   createRoom(profile: Profile, password?: string | null): Promise<void>;
   joinRoom(code: string, profile: Profile, password?: string | null): Promise<void>;
@@ -134,6 +158,7 @@ interface RoomState {
   attachPlayer(adapter: PlayerAdapter): void;
   loadMembers(): Promise<void>;
   loadChat(): Promise<void>;
+  loadAudit(): Promise<void>;
   moderate(userId: string, opts: { banned?: boolean; muteSeconds?: number }): Promise<void>;
   setHost(userId: string): Promise<void>;
   approveControl(): Promise<void>;
@@ -545,6 +570,18 @@ export const useRoom = create<RoomState>((set, get) => {
         set((s) => ({ messages: s.messages.filter((m) => m.id !== old.id) }));
       },
     );
+    // Audit log: moderation entries stream to the host (RLS only delivers
+    // rows the subscriber may read, so guests never see this fire).
+    channel.on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "room_audit", filter: `room_code=eq.${code}` },
+      (payload) => {
+        const row = payload.new as AuditRow | null;
+        if (!row) return;
+        const entry = rowToAudit(row);
+        set((s) => ({ audit: [entry, ...s.audit.filter((e) => e.id !== entry.id)].slice(0, 30) }));
+      },
+    );
     // Reaction toggles arrive as row updates (only reactions ever change).
     channel.on(
       "postgres_changes",
@@ -694,6 +731,7 @@ export const useRoom = create<RoomState>((set, get) => {
           });
           void get().loadMembers();
           void get().loadChat();
+          void get().loadAudit();
           engine?.requestSync();
           scheduleSelfSyncFallback(get().videoId);
           if (!settled) {
@@ -742,6 +780,7 @@ export const useRoom = create<RoomState>((set, get) => {
     toasts: [],
     typing: {},
     upNext: null,
+    audit: [],
 
     async loadMembers() {
       const s = get();
@@ -769,6 +808,20 @@ export const useRoom = create<RoomState>((set, get) => {
       const seen = new Set(get().messages.map((m) => m.id));
       const merged = [...history.filter((m) => !seen.has(m.id)), ...get().messages];
       set({ messages: merged.slice(-CHAT_TRIM) });
+    },
+
+    async loadAudit() {
+      const s = get();
+      const supabase = getSupabase();
+      if (!s.code || !supabase || !isHostNow()) return;
+      const { data } = await supabase
+        .from("room_audit")
+        .select("id, action, actor_name, target_id, target_name, detail, created_at")
+        .eq("room_code", s.code)
+        .order("created_at", { ascending: false })
+        .limit(30);
+      if (!data || get().code !== s.code) return;
+      set({ audit: (data as AuditRow[]).map(rowToAudit) });
     },
 
     async moderate(userId, opts) {
@@ -892,6 +945,7 @@ export const useRoom = create<RoomState>((set, get) => {
         floating: [],
         typing: {},
         upNext: null,
+        audit: [],
       });
       selfProfile = p;
       await connect(code, p);
@@ -946,6 +1000,7 @@ export const useRoom = create<RoomState>((set, get) => {
         floating: [],
         typing: {},
         upNext: null,
+        audit: [],
       });
       const url = new URL(location.href);
       url.searchParams.delete("room");

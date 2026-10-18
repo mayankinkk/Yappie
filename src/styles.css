@@ -1356,6 +1356,35 @@ input[type="range"].volume:disabled {
   border-radius: 999px;
 }
 
+.audit-list {
+  list-style: none;
+  margin: 0;
+  padding: 7px 0;
+  max-height: 238px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.audit-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 14px;
+  font-size: 0.82rem;
+}
+
+.audit-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.audit-time {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  color: var(--faint);
+}
+
 .watchers-body {
   padding: 12px 14px;
   display: flex;

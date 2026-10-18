@@ -51,6 +51,18 @@ export interface ChatRow {
   reactions?: Record<string, string[]> | null;
 }
 
+export interface AuditRow {
+  id: number;
+  room_code: string;
+  actor_id: string | null;
+  actor_name: string;
+  action: string;
+  target_id: string | null;
+  target_name: string | null;
+  detail: string | null;
+  created_at: string;
+}
+
 export class RoomError extends Error {
   readonly code: string;
   readonly silent?: boolean;

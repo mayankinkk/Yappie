@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useRoom } from "../stores/room";
+import { useRoom, type AuditEntry } from "../stores/room";
 import { useSession } from "../stores/session";
 import { YouTubePlayer } from "../player/YouTubePlayer";
 import RoomHeader from "./RoomHeader";
@@ -11,9 +11,41 @@ import WatchHistory from "./WatchHistory";
 import ReactionsBar from "./ReactionsBar";
 import VoiceBar from "./VoiceBar";
 import { watchUrl } from "../lib/video-id";
+import { timeAgo } from "../lib/time";
 import { toggleCinemaFullscreen } from "../lib/fullscreen";
 import { soundEnabled, setSoundEnabled, playSound } from "../lib/sound";
 import { canControlNow } from "../stores/room";
+
+function auditPhrase(e: AuditEntry): string {
+  const actor = e.actorName || "Host";
+  const target = e.targetName || "a member";
+  switch (e.action) {
+    case "ban":
+      return `${actor} banned ${target}`;
+    case "unban":
+      return `${actor} unbanned ${target}`;
+    case "mute":
+      return `${actor} muted ${target}`;
+    case "unmute":
+      return `${actor} unmuted ${target}`;
+    case "lock":
+      return `${actor} locked the room`;
+    case "unlock":
+      return `${actor} unlocked the room`;
+    case "guests_control_on":
+      return `${actor} allowed guest control`;
+    case "guests_control_off":
+      return `${actor} revoked guest control`;
+    case "delete_message":
+      return `${actor} deleted ${target}'s message`;
+    case "transfer":
+      return e.actorName && e.actorName === e.targetName
+        ? `${actor} claimed host`
+        : `${actor} made ${target} host`;
+    default:
+      return `${actor} ${e.action}`;
+  }
+}
 
 export default function Room() {
   const code = useRoom((s) => s.code)!;
@@ -53,6 +85,25 @@ export default function Room() {
   const unread = useRoom((s) => s.unread);
   const queueCount = useRoom((s) => s.queue.length);
   const peopleCount = useRoom((s) => s.participants.length);
+  const audit = useRoom((s) => s.audit);
+
+  const auditCard =
+    isHost && audit.length > 0 ? (
+      <section className="card audit-card">
+        <div className="card-head">
+          <span>Activity</span>
+          <span>{audit.length}</span>
+        </div>
+        <ul className="audit-list">
+          {audit.slice(0, 12).map((e) => (
+            <li key={e.id} className="audit-item">
+              <span className="audit-text">{auditPhrase(e)}</span>
+              <span className="audit-time">{timeAgo(e.createdAt)}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ) : null;
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 980px)");
@@ -375,13 +426,19 @@ export default function Room() {
                   <WatchHistory />
                 </>
               )}
-              {panel === "people" && <Watchers />}
+              {panel === "people" && (
+                <>
+                  <Watchers />
+                  {auditCard}
+                </>
+              )}
             </>
           ) : (
             <>
               <Watchers />
               <QueuePanel />
               <WatchHistory />
+              {auditCard}
               <Chat />
             </>
           )}
