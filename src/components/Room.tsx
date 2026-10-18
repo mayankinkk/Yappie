@@ -46,6 +46,20 @@ export default function Room() {
   const isHost = !!myId && hostId === myId;
   const [nowTs, setNowTs] = useState(() => Date.now());
   const hotTimer = useRef<number | null>(null);
+  // Sidebar collapses to Chat / Queue / People tabs at the same breakpoint
+  // where CSS stacks the grid (≤980px).
+  const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 980px)").matches);
+  const [panel, setPanel] = useState<"chat" | "queue" | "people">("chat");
+  const unread = useRoom((s) => s.unread);
+  const queueCount = useRoom((s) => s.queue.length);
+  const peopleCount = useRoom((s) => s.participants.length);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 980px)");
+    const onChange = () => setMobile(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   useEffect(() => {
     if (!upNext) return;
@@ -323,10 +337,54 @@ export default function Room() {
         </section>
 
         <aside className="sidebar">
-          <Watchers />
-          <QueuePanel />
-          <WatchHistory />
-          <Chat />
+          {mobile ? (
+            <>
+              <nav className="mobile-tabs" aria-label="Panels">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={panel === "chat"}
+                  className={`mobile-tab${panel === "chat" ? " active" : ""}`}
+                  onClick={() => setPanel("chat")}
+                >
+                  Chat{unread > 0 && <span className="tab-badge">{unread}</span>}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={panel === "queue"}
+                  className={`mobile-tab${panel === "queue" ? " active" : ""}`}
+                  onClick={() => setPanel("queue")}
+                >
+                  Queue{queueCount > 0 && <span className="tab-badge">{queueCount}</span>}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={panel === "people"}
+                  className={`mobile-tab${panel === "people" ? " active" : ""}`}
+                  onClick={() => setPanel("people")}
+                >
+                  People{peopleCount > 0 && <span className="tab-badge">{peopleCount}</span>}
+                </button>
+              </nav>
+              {panel === "chat" && <Chat />}
+              {panel === "queue" && (
+                <>
+                  <QueuePanel />
+                  <WatchHistory />
+                </>
+              )}
+              {panel === "people" && <Watchers />}
+            </>
+          ) : (
+            <>
+              <Watchers />
+              <QueuePanel />
+              <WatchHistory />
+              <Chat />
+            </>
+          )}
         </aside>
       </div>
     </div>
