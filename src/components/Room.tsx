@@ -61,6 +61,17 @@ export default function Room() {
   const ensureTitle = useRoom((s) => s.ensureTitle);
   const pushToast = useRoom((s) => s.pushToast);
   const nowTitle = videoId ? (titles[videoId] ?? null) : null;
+
+  // Recognizable tab when partying among many tabs.
+  useEffect(() => {
+    document.title = nowTitle
+      ? `${playing ? "▶" : "⏸"} ${nowTitle} · Sofa`
+      : `Sofa · room ${code}`;
+    return () => {
+      document.title = "Sofa — Watch YouTube together";
+    };
+  }, [nowTitle, playing, code]);
+
   const [offline, setOffline] = useState(() => !navigator.onLine);
   const prevConn = useRef(connection);
   const [player, setPlayer] = useState<YouTubePlayer | null>(null);
