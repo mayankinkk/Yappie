@@ -51,6 +51,8 @@ export class YouTubePlayer implements PlayerAdapter {
   private volume = 100;
   private captions = captionsEnabled();
   private suppressLoop: number | null = null;
+  private destroyed = false;
+  private destroyed = false;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -87,7 +89,10 @@ export class YouTubePlayer implements PlayerAdapter {
 
   async init(): Promise<void> {
     await loadApi();
-    if (this.player) return;
+    // React StrictMode mounts → destroys → remounts; the first instance's
+    // init() resumes after its own destroy() and would otherwise create a
+    // zombie YT.Player on the recycled host element.
+    if (this.destroyed || this.player) return;
     this.player = new YT.Player(this.host, {
       playerVars: {
         controls: needsNativeYoutubeControls() ? 1 : 0,
@@ -100,6 +105,7 @@ export class YouTubePlayer implements PlayerAdapter {
       },
       events: {
         onReady: () => {
+          if (this.destroyed) return;
           this.readyState = true;
           if (this.muted) this.player?.mute();
           this.player?.setVolume(this.volume);
@@ -189,6 +195,7 @@ export class YouTubePlayer implements PlayerAdapter {
   }
 
   destroy(): void {
+    this.destroyed = true;
     this.stopSuppressLoop();
     try {
       this.player?.destroy();
