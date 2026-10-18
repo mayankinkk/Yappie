@@ -36,6 +36,8 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
   );
   const [seeking, setSeeking] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [fsActive, setFsActive] = useState(false);
+  const [fsIdle, setFsIdle] = useState(false);
   const sliderRef = useRef<HTMLInputElement>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
 
@@ -43,6 +45,41 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
     localStorage.setItem("sofa.volume", String(volume));
     player?.setVolume(volume);
   }, [player, volume]);
+
+  useEffect(() => {
+    const onChange = () => setFsActive(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    document.addEventListener("webkitfullscreenchange", onChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+      document.removeEventListener("webkitfullscreenchange", onChange);
+    };
+  }, []);
+
+  // In fullscreen while playing: fade the bar out after 3s of no input,
+  // bring it back on any mouse move / key / tap.
+  useEffect(() => {
+    if (!fsActive || !playing) {
+      setFsIdle(false);
+      return;
+    }
+    let timer = 0;
+    const wake = () => {
+      setFsIdle(false);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setFsIdle(true), 3000);
+    };
+    wake();
+    window.addEventListener("mousemove", wake, { passive: true });
+    window.addEventListener("keydown", wake);
+    window.addEventListener("pointerdown", wake);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("mousemove", wake);
+      window.removeEventListener("keydown", wake);
+      window.removeEventListener("pointerdown", wake);
+    };
+  }, [fsActive, playing]);
 
   useEffect(() => {
     if (!player) return;
@@ -157,7 +194,7 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
           </span>
         </div>
       )}
-      <div className="controls" ref={controlsRef}>
+      <div className={`controls${fsIdle ? " fs-idle" : ""}`} ref={controlsRef}>
       <button
         className="ctrl-btn play"
         title={playing ? "Pause (Space)" : "Play (Space)"}

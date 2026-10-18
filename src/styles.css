@@ -589,6 +589,21 @@ a {
   background: var(--panel);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
+}
+
+/* Fullscreen idle: bar fades away, cursor with it; any input wakes it. */
+.controls.fs-idle {
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+}
+
+.cinema:fullscreen:has(.controls.fs-idle),
+.cinema:-webkit-full-screen:has(.controls.fs-idle) {
+  cursor: none;
 }
 
 .control-request {
