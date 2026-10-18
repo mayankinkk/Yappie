@@ -7,6 +7,12 @@ type FullscreenDoc = Document & {
   webkitExitFullscreen?: () => Promise<void> | void;
 };
 
+/** lib.dom omits ScreenOrientation.lock (non-standard); it's exactly what we need. */
+type LockableOrientation = ScreenOrientation & {
+  lock?: (orientation: string) => Promise<void>;
+  unlock?: () => void;
+};
+
 export function activeFullscreenElement(): Element | null {
   const doc = document as FullscreenDoc;
   return document.fullscreenElement || doc.webkitFullscreenElement || null;
@@ -30,7 +36,8 @@ export function needsNativeYoutubeControls(): boolean {
 
 function lockLandscape(): void {
   try {
-    const p = screen.orientation?.lock?.("landscape");
+    const so = typeof screen === "undefined" ? null : (screen.orientation as LockableOrientation | null);
+    const p = so?.lock?.("landscape");
     p?.catch(() => {
       /* fullscreen already gone or lock refused — stay as-is */
     });
@@ -41,7 +48,8 @@ function lockLandscape(): void {
 
 export function unlockOrientation(): void {
   try {
-    screen.orientation?.unlock?.();
+    const so = typeof screen === "undefined" ? null : (screen.orientation as LockableOrientation | null);
+    so?.unlock?.();
   } catch {
     /* ignore */
   }
