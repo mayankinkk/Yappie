@@ -12,7 +12,7 @@ import ReactionsBar from "./ReactionsBar";
 import VoiceBar from "./VoiceBar";
 import { watchUrl } from "../lib/video-id";
 import { timeAgo } from "../lib/time";
-import { toggleCinemaFullscreen } from "../lib/fullscreen";
+import { needsNativeYoutubeControls, toggleCinemaFullscreen } from "../lib/fullscreen";
 import { soundEnabled, setSoundEnabled, playSound } from "../lib/sound";
 import { canControlNow } from "../stores/room";
 
@@ -86,6 +86,9 @@ export default function Room() {
   const queueCount = useRoom((s) => s.queue.length);
   const peopleCount = useRoom((s) => s.participants.length);
   const audit = useRoom((s) => s.audit);
+  // iOS/iPadOS: hand the chrome to YouTube so its fullscreen button can use
+  // the native (landscape) video player — see needsNativeYoutubeControls().
+  const ytNative = needsNativeYoutubeControls();
 
   const auditCard =
     isHost && audit.length > 0 ? (
@@ -230,10 +233,10 @@ export default function Room() {
       )}
       <div className={`main${theater ? " theater" : ""}`}>
         <section className="stage">
-          <div className="cinema">
+          <div className={`cinema${ytNative ? " yt-native" : ""}`}>
             <div className="player-wrap">
               <div ref={hostRef} className="player-host" />
-            {videoId && (
+            {videoId && !ytNative && (
               <div className="video-hotzone" onClick={onHotClick} onDoubleClick={onHotDoubleClick} />
             )}
               {!videoId && (

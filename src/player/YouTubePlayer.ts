@@ -1,4 +1,5 @@
 import type { PlayerAdapter, PlayerLocalEvent } from "../types";
+import { needsNativeYoutubeControls } from "../lib/fullscreen";
 
 declare global {
   interface Window {
@@ -51,7 +52,7 @@ export class YouTubePlayer implements PlayerAdapter {
     if (this.player) return;
     this.player = new YT.Player(this.host, {
       playerVars: {
-        controls: 0,
+        controls: needsNativeYoutubeControls() ? 1 : 0,
         modestbranding: 1,
         rel: 0,
         playsinline: 1,

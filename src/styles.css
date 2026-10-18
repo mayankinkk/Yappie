@@ -712,6 +712,12 @@ a {
   }
 }
 
+/* iOS/iPadOS touch: YouTube's native controls take over — its fullscreen
+   button is the only path to a rotating landscape fullscreen there. */
+.cinema.yt-native .controls {
+  display: none;
+}
+
 .controls {
   display: flex;
   align-items: center;

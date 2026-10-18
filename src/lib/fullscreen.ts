@@ -12,6 +12,41 @@ export function activeFullscreenElement(): Element | null {
   return document.fullscreenElement || doc.webkitFullscreenElement || null;
 }
 
+/**
+ * Touch devices that can't lock orientation (iOS/iPadOS Safari). There, an
+ * element fullscreen of our portrait-shaped .cinema never rotates, and
+ * screen.orientation.lock doesn't exist — but YouTube's *native* fullscreen
+ * button opens the native video player, which does go landscape. So on those
+ * devices we hand playback chrome over to YouTube (controls: 1, no hotzone,
+ * no custom bar); everything else keeps the custom controls.
+ */
+export function needsNativeYoutubeControls(): boolean {
+  if (typeof window === "undefined") return false;
+  const coarse = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+  const canLock =
+    typeof screen !== "undefined" && !!screen.orientation && "lock" in screen.orientation;
+  return coarse && !canLock;
+}
+
+function lockLandscape(): void {
+  try {
+    const p = screen.orientation?.lock?.("landscape");
+    p?.catch(() => {
+      /* fullscreen already gone or lock refused — stay as-is */
+    });
+  } catch {
+    /* unsupported — stay portrait */
+  }
+}
+
+export function unlockOrientation(): void {
+  try {
+    screen.orientation?.unlock?.();
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Toggle fullscreen on the .cinema wrapper (player + controls). */
 export function toggleCinemaFullscreen(): void {
   const doc = document as FullscreenDoc;
@@ -21,6 +56,20 @@ export function toggleCinemaFullscreen(): void {
     else void doc.webkitExitFullscreen?.();
     return;
   }
-  if (el?.requestFullscreen) void el.requestFullscreen();
-  else el?.webkitRequestFullscreen?.();
+  if (el?.requestFullscreen) {
+    const done = el.requestFullscreen();
+    if (done && typeof done.then === "function") void done.then(lockLandscape).catch(() => {});
+    else lockLandscape();
+  } else if (el?.webkitRequestFullscreen) {
+    el.webkitRequestFullscreen();
+    lockLandscape();
+  }
+}
+
+if (typeof document !== "undefined") {
+  const onExit = () => {
+    if (!activeFullscreenElement()) unlockOrientation();
+  };
+  document.addEventListener("fullscreenchange", onExit);
+  document.addEventListener("webkitfullscreenchange", onExit);
 }
