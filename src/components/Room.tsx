@@ -53,6 +53,7 @@ export default function Room() {
   const playing = useRoom((s) => s.playing);
   const connection = useRoom((s) => s.connection);
   const drift = useRoom((s) => s.drift);
+  const resyncNow = useRoom((s) => s.resyncNow);
   const guestsCanControl = useRoom((s) => s.guestsCanControl);
   const attachPlayer = useRoom((s) => s.attachPlayer);
   const loadVideo = useRoom((s) => s.loadVideo);
@@ -351,7 +352,8 @@ export default function Room() {
                 : "Waiting for a video…"}
             </span>
             {videoId && (
-              <span
+              <button
+                type="button"
                 className={`sync-pill ${
                   drift === null
                     ? "pending"
@@ -361,12 +363,14 @@ export default function Room() {
                         ? "warn"
                         : "bad"
                 }`}
-                title="Playback drift vs the host (checked every 5s)"
+                title="Playback drift vs the host (checked every 5s) — click to resync"
+                onClick={() => resyncNow()}
               >
                 {drift === null
                   ? "sync —"
                   : `sync ±${drift < 10 ? drift.toFixed(1) : `${Math.floor(drift)}+`}s`}
-              </span>
+                {drift !== null && drift >= 0.5 ? " ↻" : ""}
+              </button>
             )}
             {videoId && (
               <a href={watchUrl(videoId)} target="_blank" rel="noreferrer">

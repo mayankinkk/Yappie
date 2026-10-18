@@ -16,7 +16,7 @@ import { extractVideoId, fetchVideoTitle } from "../lib/video-id";
 import { rememberRoom } from "../lib/recent";
 import { randomId } from "../lib/ids";
 import { playSound } from "../lib/sound";
-import { SyncEngine } from "../sync/SyncEngine";
+import { SyncEngine, computeExpectedTime } from "../sync/SyncEngine";
 import {
   RoomError,
   claimHostRpc,
@@ -52,6 +52,7 @@ const chatOut = new RateLimiter(5, 5000);
 const chatOutGap = new MinGap(500);
 const reactionOut = new RateLimiter(6, 3000);
 const queueAddOut = new RateLimiter(6, 60_000);
+const resyncOut = new RateLimiter(6, 10_000);
 const voteOut = new RateLimiter(10, 10_000);
 
 // Receiver-side budgets: drop other clients' excess on arrival. These defend
@@ -169,6 +170,7 @@ interface RoomState {
   seekTo(time: number): void;
   loadVideo(input: string): Promise<void>;
   ensureTitle(videoId: string): void;
+  resyncNow(): void;
   sendChat(text: string): void;
   deleteChatMessage(id: string): Promise<void>;
   reactToMessage(messageId: string, emoji: string): Promise<void>;
@@ -1033,6 +1035,24 @@ export const useRoom = create<RoomState>((set, get) => {
     seekTo(time) {
       if (!get().videoId) return;
       engine?.localSeek(time);
+    },
+
+    /**
+     * Local catch-up to the host's expected position (and play/pause state).
+     * The engine auto-corrects mid-playback drift, but tick() bails when the
+     * local player is paused while the host expects playback — this fixes
+     * that class of stall, and anything else the viewer can feel.
+     */
+    resyncNow() {
+      if (!engine || !playerAdapter?.ready()) return;
+      if (!resyncOut.allow("resync")) return;
+      const ref = engine.getLocalRef();
+      if (!ref.videoId) return;
+      const expected = ref.playing ? computeExpectedTime(ref, Date.now()) : ref.time;
+      playerAdapter.seek(expected);
+      if (ref.playing && !playerAdapter.isPlaying()) playerAdapter.play();
+      else if (!ref.playing && playerAdapter.isPlaying()) playerAdapter.pause();
+      set({ drift: 0 });
     },
 
     ensureTitle,

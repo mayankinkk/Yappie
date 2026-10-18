@@ -24,6 +24,8 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
   const approveControl = useRoom((s) => s.approveControl);
   const denyControl = useRoom((s) => s.denyControl);
   const videoId = useRoom((s) => s.videoId);
+  const drift = useRoom((s) => s.drift);
+  const resyncNow = useRoom((s) => s.resyncNow);
   const profile = useSession((s) => s.profile);
   const canControl =
     !!profile && (profile.id === hostId || guestsCanControl || grantedTo.includes(profile.id));
@@ -239,6 +241,16 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
       <span className="time-label">
         {formatTime(time)} / {formatTime(duration)}
       </span>
+      {videoId && drift !== null && (
+        <button
+          type="button"
+          className={`sync-chip ${drift < 0.5 ? "ok" : drift < 1.5 ? "warn" : "bad"}`}
+          title="Playback drift vs the host — click to resync"
+          onClick={() => resyncNow()}
+        >
+          {drift < 0.5 ? "in sync" : `±${drift < 10 ? drift.toFixed(1) : `${Math.floor(drift)}+`}s`}
+        </button>
+      )}
       <button
         className="ctrl-btn"
         title={muted ? "Unmute (M)" : "Mute (M)"}
