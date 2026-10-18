@@ -1,0 +1,25 @@
+name: Room GC
+
+on:
+  schedule:
+    - cron: "17 4 * * *" # daily 04:17 UTC
+  workflow_dispatch:
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prune rooms idle for 30 days
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY secrets not set — skipping."
+            exit 0
+          fi
+          curl -fsS -X POST "$SUPABASE_URL/rest/v1/rpc/prune_stale_rooms" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"p_idle_days": 30}'
