@@ -88,6 +88,8 @@ function rowToChat(row: ChatRow): ChatMessage {
 let transport: Transport | null = null;
 let engine: SyncEngine | null = null;
 let playerAdapter: PlayerAdapter | null = null;
+/** Video id the local player was last told to show (engine or fallback). */
+let localLoadedVideoId: string | null = null;
 let channelUnsubscribe: (() => void) | null = null;
 let driftTimer: ReturnType<typeof setInterval> | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -217,7 +219,39 @@ export const useRoom = create<RoomState>((set, get) => {
       next.queueVersion = row.queue_version;
     }
     set(next);
-    if (row.video_id !== s.videoId) engine?.requestSync();
+    if (row.video_id !== s.videoId) {
+      engine?.requestSync();
+      scheduleSelfSyncFallback(row.video_id);
+    }
+  }
+
+  /**
+   * Realtime broadcasts are NOT echoed back to their sender, and only a
+   * trusted peer (host/granted) answers sync-request — so a client joining
+   * alone (host, or anyone while the host is offline) would otherwise stare
+   * at an empty player forever. Cue the local video as a fallback when no
+   * trusted state arrives within ~900ms; an early remote answer always wins.
+   */
+  let selfSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleSelfSyncFallback(videoId: string | null): void {
+    if (selfSyncTimer) clearTimeout(selfSyncTimer);
+    selfSyncTimer = null;
+    if (!videoId) return;
+    let tries = 0;
+    const attempt = () => {
+      selfSyncTimer = null;
+      const s = get();
+      if (!s.videoId || s.videoId !== videoId) return;
+      if (localLoadedVideoId === videoId) return;
+      if (playerAdapter?.isPlaying()) return;
+      if (playerAdapter?.ready()) {
+        localLoadedVideoId = videoId;
+        playerAdapter.load(videoId, 0, false);
+        return;
+      }
+      if (++tries < 20) selfSyncTimer = setTimeout(attempt, 500);
+    };
+    selfSyncTimer = setTimeout(attempt, 900);
   }
 
   /**
@@ -388,7 +422,10 @@ export const useRoom = create<RoomState>((set, get) => {
       transport: t,
       player: {
         ready: () => playerAdapter?.ready() ?? false,
-        load: (v, t, a) => playerAdapter?.load(v, t, a),
+      load: (v, t, a) => {
+        localLoadedVideoId = v;
+        playerAdapter?.load(v, t, a);
+      },
         play: () => playerAdapter?.play(),
         pause: () => playerAdapter?.pause(),
         seek: (t) => playerAdapter?.seek(t),
@@ -621,6 +658,7 @@ export const useRoom = create<RoomState>((set, get) => {
           void get().loadMembers();
           void get().loadChat();
           engine?.requestSync();
+          scheduleSelfSyncFallback(get().videoId);
           if (!settled) {
             settled = true;
             resolve();
@@ -877,6 +915,7 @@ export const useRoom = create<RoomState>((set, get) => {
 
     attachPlayer(adapter) {
       playerAdapter = adapter;
+      localLoadedVideoId = null;
       adapter.onLocalEvent((e) => {
         if (e.type === "ended") {
           engine?.handlePlayerEnded();
@@ -885,6 +924,7 @@ export const useRoom = create<RoomState>((set, get) => {
         }
       });
       engine?.requestSync();
+      scheduleSelfSyncFallback(get().videoId);
     },
 
     togglePlayback() {
