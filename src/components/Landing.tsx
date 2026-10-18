@@ -41,9 +41,10 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
 
   function requireName(): boolean {
     if (!profile?.name || profile.name === "Guest") {
-      const input = document.getElementById("name-input") as HTMLInputElement | null;
-      input?.focus();
       setShake((s) => s + 1);
+      // The shake remounts the card (key={shake}), so focus must land on
+      // the *new* input after React repaints — or mobile keyboards never open.
+      requestAnimationFrame(() => document.getElementById("name-input")?.focus());
       pushToast("Enter your name first", "error");
       return false;
     }
