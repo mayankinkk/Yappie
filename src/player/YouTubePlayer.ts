@@ -19,7 +19,7 @@ let ytReadyPromise: Promise<void> | null = null;
 function loadApi(): Promise<void> {
   if (!ytReadyPromise) {
     ytReadyPromise = new Promise((resolve, reject) => {
-      if (window.YT?.Player) {
+      if (window.YT?.Player && window.YT.PlayerState) {
         resolve();
         return;
       }
@@ -62,7 +62,7 @@ export class YouTubePlayer implements PlayerAdapter {
   // load. Re-suppress on an interval for a bounded window after playback
   // starts, then stop (harmless no-op calls when already suppressed).
   private suppressCaptions(): void {
-    const p = this.player as ModuleCapable | null;
+    const p = this.api() as ModuleCapable | null;
     if (!p) return;
     try {
       p.unloadModule?.("captions");
@@ -86,12 +86,22 @@ export class YouTubePlayer implements PlayerAdapter {
     }
   }
 
-  async init(): Promise<void> {
+  // YT.Player handed back by the constructor may still be the pre-ready
+  // shell: it has no getPlayerState until the API binds the iframe (and
+  // constructing on a detached target leaves it permanently unbound).
+  // Every call must go through here so early polls can never throw.
+  private api(): YT.Player | null {
+    const p = this.player;
+    if (!p) return null;
+    return typeof (p as { getPlayerState?: unknown }).getPlayerState === "function" ? p : null;
+  }
+
+  async init(): Promise<boolean> {
     await loadApi();
     // React StrictMode mounts → destroys → remounts; the first instance's
     // init() resumes after its own destroy() and would otherwise create a
     // zombie YT.Player on the recycled host element.
-    if (this.destroyed || this.player) return;
+    if (this.destroyed || this.player) return false;
     this.player = new YT.Player(this.host, {
       playerVars: {
         controls: needsNativeYoutubeControls() ? 1 : 0,
@@ -106,20 +116,23 @@ export class YouTubePlayer implements PlayerAdapter {
         onReady: () => {
           if (this.destroyed) return;
           this.readyState = true;
-          if (this.muted) this.player?.mute();
-          this.player?.setVolume(this.volume);
+          if (this.muted) this.api()?.mute();
+          this.api()?.setVolume(this.volume);
           if (!this.captions) this.startSuppressLoop();
           this.cb?.({ type: "ready" });
         },
         onStateChange: (e) => {
+          if (this.destroyed) return;
           if (e.data === YT.PlayerState.PLAYING && !this.captions) this.startSuppressLoop();
           if (e.data === YT.PlayerState.ENDED) this.cb?.({ type: "ended" });
         },
         onError: (e) => {
+          if (this.destroyed) return;
           this.cb?.({ type: "error", code: e.data });
         },
       },
     });
+    return !this.destroyed;
   }
 
   ready(): boolean {
@@ -127,51 +140,54 @@ export class YouTubePlayer implements PlayerAdapter {
   }
 
   load(videoId: string, time: number, autoplay: boolean): void {
-    if (!this.player || !this.readyState) return;
+    const p = this.api();
+    if (!p || !this.readyState) return;
     this.currentVideoId = videoId;
-    if (autoplay) this.player.loadVideoById({ videoId, startSeconds: time });
-    else this.player.cueVideoById({ videoId, startSeconds: time });
+    if (autoplay) p.loadVideoById({ videoId, startSeconds: time });
+    else p.cueVideoById({ videoId, startSeconds: time });
   }
 
   play(): void {
-    this.player?.playVideo();
+    this.api()?.playVideo();
   }
 
   pause(): void {
-    this.player?.pauseVideo();
+    this.api()?.pauseVideo();
   }
 
   seek(time: number): void {
-    this.player?.seekTo(time, true);
+    this.api()?.seekTo(time, true);
   }
 
   getTime(): number {
-    return this.player?.getCurrentTime() || 0;
+    return this.api()?.getCurrentTime() || 0;
   }
 
   getDuration(): number {
-    return this.player?.getDuration() || 0;
+    return this.api()?.getDuration() || 0;
   }
 
   isPlaying(): boolean {
-    return this.player?.getPlayerState() === YT.PlayerState.PLAYING;
+    return this.api()?.getPlayerState() === YT.PlayerState.PLAYING;
   }
 
   getState(): YT.PlayerState | null {
-    return this.player?.getPlayerState() ?? null;
+    return this.api()?.getPlayerState() ?? null;
   }
 
   setMuted(muted: boolean): void {
     this.muted = muted;
-    if (!this.player || !this.readyState) return;
-    if (muted) this.player.mute();
-    else this.player.unMute();
+    const p = this.api();
+    if (!p || !this.readyState) return;
+    if (muted) p.mute();
+    else p.unMute();
   }
 
   setVolume(volume: number): void {
     this.volume = Math.max(0, Math.min(100, volume));
-    if (!this.player || !this.readyState) return;
-    this.player.setVolume(this.volume);
+    const p = this.api();
+    if (!p || !this.readyState) return;
+    p.setVolume(this.volume);
   }
 
   setCaptionsEnabled(on: boolean): void {
@@ -181,9 +197,10 @@ export class YouTubePlayer implements PlayerAdapter {
       return;
     }
     this.stopSuppressLoop();
-    if (!this.player || !this.readyState) return;
+    const p = this.api();
+    if (!p || !this.readyState) return;
     try {
-      (this.player as ModuleCapable).loadModule?.("captions");
+      (p as ModuleCapable).loadModule?.("captions");
     } catch {
       /* module API unavailable */
     }

@@ -171,12 +171,16 @@ export default function Room() {
     const inner = document.createElement("div");
     host.appendChild(inner);
     const yt = new YouTubePlayer(inner);
-    void yt.init().then(() => {
+    void yt.init().then((ok) => {
+      // A false result means this instance was destroyed before its async
+      // init finished (StrictMode remount) — never attach a dead player.
+      if (!ok) return;
       attachPlayer(yt);
       setPlayer(yt);
     });
     const statePoll = setInterval(() => {
-      setBuffering(yt.getState() === YT.PlayerState.BUFFERING);
+      const buffering = yt.getState() === (typeof YT !== "undefined" ? YT.PlayerState?.BUFFERING : null);
+      setBuffering(buffering);
     }, 400);
     return () => {
       clearInterval(statePoll);
