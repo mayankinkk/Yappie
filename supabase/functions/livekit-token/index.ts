@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
     });
     at.addGrant({
       roomJoin: true,
-      room: `sofa-${room}`,
+      room: `yappie-${room}`,
       canPublish: true,
       canSubscribe: true,
       canPublishData: false,

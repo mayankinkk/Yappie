@@ -1,4 +1,4 @@
-# Sofa
+# Yappie
 
 Watch YouTube together, in perfect sync. Rooms with synced playback, chat (with emoji, per-message reactions, typing indicators, and host moderation), reactions, a shared queue with upvoting, watch history, and optional voice chat.
 

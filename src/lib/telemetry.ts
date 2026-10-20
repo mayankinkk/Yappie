@@ -21,7 +21,7 @@ export function initTelemetry(): void {
     Sentry.init({
       dsn: DSN,
       environment: import.meta.env.MODE,
-      release: `sofa@${import.meta.env.npm_package_version || "1.0.0"}`,
+      release: `yappie@${import.meta.env.npm_package_version || "1.0.0"}`,
       tracesSampleRate: 0.1,
       ignoreErrors: [
         // Supabase realtime flaps and YouTube embed quirks are expected noise
@@ -73,7 +73,7 @@ export function captureError(error: unknown, context?: Record<string, unknown>):
     Sentry.captureException(error, context ? { extra: context } : undefined);
     return;
   }
-  console.error("Sofa error:", error);
+  console.error("Yappie error:", error);
   const err = error instanceof Error ? error : null;
   reportFallback(err?.message || String(error), err?.stack, context ? JSON.stringify(context).slice(0, 300) : "captureError");
 }

@@ -1,6 +1,6 @@
 import { useRoom, isHostNow } from "../stores/room";
 import { useSession } from "../stores/session";
-import { SofaMark } from "../App";
+import { YappieMark } from "../App";
 
 export default function RoomHeader() {
   const code = useRoom((s) => s.code)!;
@@ -27,8 +27,8 @@ export default function RoomHeader() {
   return (
     <header className="topbar">
       <div className="logo">
-        <SofaMark size={26} />
-        Sofa
+        <YappieMark size={26} />
+        Yappie
       </div>
       <div className="room-chip">
         Room <strong>{code}</strong>

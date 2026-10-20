@@ -25,7 +25,7 @@ export default class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="boot">
           <div className="landing-card">
-            <div className="logo">Sofa</div>
+            <div className="logo">Yappie</div>
             <p className="tagline" style={{ margin: "8px 0 20px" }}>
               Something went wrong. A reload usually fixes it.
             </p>

@@ -1,4 +1,4 @@
-Sofa: overview
+Yappie: overview
 Updated: after the production rewrite.
 
 What it is: a free, browser-based watch party app (think Rave/Teleparty for YouTube). You create a room, friends join with a code or invite link, and everyone watches the same moment together — with chat, reactions, a shared queue, and optional voice chat.

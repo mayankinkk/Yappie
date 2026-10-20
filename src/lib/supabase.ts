@@ -3,7 +3,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 const ENV_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const ENV_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 const ENV_LIVEKIT = import.meta.env.VITE_LIVEKIT_URL as string | undefined;
-const LS_KEY = "sofa.supabase";
+const LS_KEY = "yappie.supabase";
 
 let client: SupabaseClient | null = null;
 

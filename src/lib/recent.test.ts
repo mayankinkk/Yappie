@@ -55,15 +55,15 @@ describe("rememberRoom", () => {
 
 describe("loadRecentRooms", () => {
   it("returns [] for missing or corrupt storage", () => {
-    stubStorage({ "sofa.recentRooms": "not json" });
+    stubStorage({ "yappie.recentRooms": "not json" });
     expect(loadRecentRooms()).toEqual([]);
-    stubStorage({ "sofa.recentRooms": '{"nope": true}' });
+    stubStorage({ "yappie.recentRooms": '{"nope": true}' });
     expect(loadRecentRooms()).toEqual([]);
   });
 
   it("filters malformed entries and wrong-length codes", () => {
     stubStorage({
-      "sofa.recentRooms": JSON.stringify([
+      "yappie.recentRooms": JSON.stringify([
         { code: "GOOD01", at: 123 },
         { code: "nope", at: 123 },
         { code: "BAD", at: "soon" },

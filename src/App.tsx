@@ -46,8 +46,8 @@ export default function App() {
     return (
       <div className="boot">
         <div className="logo">
-          <SofaMark size={40} />
-          Sofa
+          <YappieMark size={40} />
+          Yappie
         </div>
       </div>
     );
@@ -71,7 +71,7 @@ export default function App() {
   );
 }
 
-export function SofaMark({ size = 26 }: { size?: number }) {
+export function YappieMark({ size = 26 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
       <rect width="64" height="64" rx="15" fill="#F59E0B" />

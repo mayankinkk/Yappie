@@ -3,7 +3,7 @@ export interface RecentRoom {
   at: number;
 }
 
-const KEY = "sofa.recentRooms";
+const KEY = "yappie.recentRooms";
 const MAX = 5;
 
 export function loadRecentRooms(): RecentRoom[] {

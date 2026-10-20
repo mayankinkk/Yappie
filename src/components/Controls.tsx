@@ -36,7 +36,7 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(() =>
-    clamp(Number(localStorage.getItem("sofa.volume") ?? "100") || 0, 0, 100),
+    clamp(Number(localStorage.getItem("yappie.volume") ?? "100") || 0, 0, 100),
   );
   const [seeking, setSeeking] = useState(false);
   const [caps, setCaps] = useState(captionsEnabled);
@@ -47,7 +47,7 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
   const controlsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    localStorage.setItem("sofa.volume", String(volume));
+    localStorage.setItem("yappie.volume", String(volume));
     player?.setVolume(volume);
   }, [player, volume]);
 

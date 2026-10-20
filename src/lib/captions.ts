@@ -1,7 +1,7 @@
 export function captionsEnabled(): boolean {
-  return localStorage.getItem("sofa.captions") !== "off";
+  return localStorage.getItem("yappie.captions") !== "off";
 }
 
 export function setCaptionsEnabled(on: boolean): void {
-  localStorage.setItem("sofa.captions", on ? "on" : "off");
+  localStorage.setItem("yappie.captions", on ? "on" : "off");
 }

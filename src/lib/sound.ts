@@ -28,11 +28,11 @@ function blip(freq: number, start: number, dur: number, gain: number, type: Osci
 }
 
 export function soundEnabled(): boolean {
-  return localStorage.getItem("sofa.sound") !== "off";
+  return localStorage.getItem("yappie.sound") !== "off";
 }
 
 export function setSoundEnabled(on: boolean): void {
-  localStorage.setItem("sofa.sound", on ? "on" : "off");
+  localStorage.setItem("yappie.sound", on ? "on" : "off");
 }
 
 export function playSound(kind: "message" | "reaction" | "join" | "leave" | "control"): void {

@@ -43,7 +43,7 @@ export default function SetupOverlay({ onClose, onSaved }: Props) {
     <div className="overlay">
       <div className="overlay-card">
         <h2>Connect Supabase</h2>
-        <p>Sofa syncs rooms through free Supabase Realtime. Setup takes about two minutes:</p>
+        <p>Yappie syncs rooms through free Supabase Realtime. Setup takes about two minutes:</p>
         <ol>
           <li>
             Create a free project at{" "}

@@ -1,4 +1,4 @@
-const CACHE = "sofa-v1";
+const CACHE = "yappie-v1";
 const SHELL = ["/", "/index.html"];
 
 self.addEventListener("install", (event) => {
