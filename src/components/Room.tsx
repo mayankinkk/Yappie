@@ -22,6 +22,8 @@ function auditPhrase(e: AuditEntry): string {
   switch (e.action) {
     case "ban":
       return `${actor} banned ${target}`;
+    case "kick":
+      return `${actor} kicked ${target}`;
     case "unban":
       return `${actor} unbanned ${target}`;
     case "mute":
@@ -66,10 +68,10 @@ export default function Room() {
   // Recognizable tab when partying among many tabs.
   useEffect(() => {
     document.title = nowTitle
-      ? `${playing ? "▶" : "⏸"} ${nowTitle} · Sofa`
-      : `Sofa · room ${code}`;
+      ? `${playing ? "▶" : "⏸"} ${nowTitle} · Yappie`
+      : `Yappie · room ${code}`;
     return () => {
-      document.title = "Sofa — Watch YouTube together";
+      document.title = "Yappie — Watch YouTube together";
     };
   }, [nowTitle, playing, code]);
 
@@ -77,7 +79,7 @@ export default function Room() {
   const prevConn = useRef(connection);
   const [player, setPlayer] = useState<YouTubePlayer | null>(null);
   const [buffering, setBuffering] = useState(false);
-  const [theater, setTheater] = useState(() => localStorage.getItem("sofa.theater") === "1");
+  const [theater, setTheater] = useState(() => localStorage.getItem("yappie.theater") === "1");
   const hostRef = useRef<HTMLDivElement>(null);
   const [sound, setSound] = useState(soundEnabled());
   const name = useSession((s) => s.profile?.name) || "";
@@ -223,7 +225,7 @@ export default function Room() {
   function toggleTheater() {
     setTheater((v) => {
       const next = !v;
-      localStorage.setItem("sofa.theater", next ? "1" : "0");
+      localStorage.setItem("yappie.theater", next ? "1" : "0");
       return next;
     });
   }

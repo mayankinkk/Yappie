@@ -41,6 +41,8 @@ export default function Watchers() {
           const info = memberInfo(p.id);
           const muted = !!info?.muted_until && Date.parse(info.muted_until) > Date.now();
           const banned = !!info?.banned;
+          const kicked =
+            !!info?.kicked_until && Date.parse(info.kicked_until) > Date.now();
           const granted = p.id !== hostId && grantedTo.includes(p.id);
           const canModerate = isHost && p.id !== myId;
           const open = canModerate && expanded === p.id;
@@ -60,10 +62,20 @@ export default function Watchers() {
                   {granted && <span className="member-dot" title="Has playback control">🎮</span>}
                   {muted && <span className="member-dot" title="Muted">🔇</span>}
                   {banned && <span className="member-dot" title="Banned">🚫</span>}
+                  {kicked && <span className="member-dot" title="Kicked">👢</span>}
                 </span>
               </span>
               {open && (
                 <div className="watcher-actions">
+                  <button
+                    className="btn small ghost"
+                    onClick={() => {
+                      void moderate(p.id, { kickMinutes: 5 });
+                      setExpanded(null);
+                    }}
+                  >
+                    Kick 5m
+                  </button>
                   <button
                     className="btn small ghost"
                     onClick={() => {

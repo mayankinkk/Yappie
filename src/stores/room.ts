@@ -25,6 +25,7 @@ import {
   joinRoomRpc,
   leaveRoomRpc,
   moderateMemberRpc,
+  kickMemberRpc,
   deleteChatMessageRpc,
   toggleChatReactionRpc,
   voteQueueRpc,
@@ -134,6 +135,7 @@ interface RoomState {
   hostId: string;
   guestsCanControl: boolean;
   roomLocked: boolean;
+  roomSlowMode: number;
   queueVersion: number;
   videoId: string | null;
   playing: boolean;
@@ -160,7 +162,7 @@ interface RoomState {
   loadMembers(): Promise<void>;
   loadChat(): Promise<void>;
   loadAudit(): Promise<void>;
-  moderate(userId: string, opts: { banned?: boolean; muteSeconds?: number }): Promise<void>;
+  moderate(userId: string, opts: { banned?: boolean; muteSeconds?: number; kickMinutes?: number }): Promise<void>;
   setHost(userId: string): Promise<void>;
   approveControl(): Promise<void>;
   denyControl(): void;
@@ -184,6 +186,7 @@ interface RoomState {
   skipUpNext(): void;
   toggleGuestControls(): void;
   toggleRoomLock(): Promise<void>;
+  setSlowMode(seconds: number): Promise<void>;
   requestControl(): void;
   markChatRead(): void;
   pushToast(text: string, kind?: ToastItem["kind"]): void;
@@ -241,6 +244,8 @@ export const useRoom = create<RoomState>((set, get) => {
       hostId: row.host_id,
       guestsCanControl: row.guests_can_control,
       roomLocked: !!row.locked,
+      roomSlowMode:
+        typeof row.slow_mode_seconds === "number" ? row.slow_mode_seconds : s.roomSlowMode,
       videoId: row.video_id ?? null,
       grantedTo: Array.isArray(row.granted_to) ? row.granted_to : [],
     };
@@ -467,7 +472,7 @@ export const useRoom = create<RoomState>((set, get) => {
     selfProfile = profile;
     set({ connection: "connecting" });
     presenceJoinedAt = Date.now();
-    const channel = supabase.channel(`sofa-v2-${code}`, {
+    const channel = supabase.channel(`yappie-v2-${code}`, {
       config: { presence: { key: profile.id } },
     });
     presenceChannel = channel;
@@ -661,6 +666,14 @@ export const useRoom = create<RoomState>((set, get) => {
           get().pushToast("You were banned from this room", "error");
           setTimeout(() => get().leaveRoom(), 500);
         }
+        if (
+          row.user_id === profile.id &&
+          row.kicked_until &&
+          Date.parse(row.kicked_until) > Date.now()
+        ) {
+          get().pushToast("You were kicked from this room", "error");
+          setTimeout(() => get().leaveRoom(), 500);
+        }
       },
     );
 
@@ -766,6 +779,7 @@ export const useRoom = create<RoomState>((set, get) => {
     hostId: "",
     guestsCanControl: true,
     roomLocked: false,
+    roomSlowMode: 0,
     queueVersion: 0,
     videoId: null,
     playing: false,
@@ -831,6 +845,12 @@ export const useRoom = create<RoomState>((set, get) => {
       const s = get();
       if (!s.code) return;
       try {
+        if (typeof opts.kickMinutes === "number") {
+          await kickMemberRpc(s.code, userId, opts.kickMinutes);
+          get().pushToast(`Kicked for ${opts.kickMinutes} min`);
+          await get().loadMembers();
+          return;
+        }
         await moderateMemberRpc(s.code, userId, opts);
         if (opts.banned === true) get().pushToast("Banned from the room");
         else if (opts.banned === false) get().pushToast("Unbanned");
@@ -933,6 +953,7 @@ export const useRoom = create<RoomState>((set, get) => {
         hostId: joined.hostId,
         guestsCanControl: joined.guestsCanControl,
         roomLocked: joined.locked,
+        roomSlowMode: joined.slowModeSeconds,
         queue: joined.queue.map(toQueueItem),
         queueVersion: joined.queueVersion,
         videoId: joined.videoId,
@@ -956,7 +977,7 @@ export const useRoom = create<RoomState>((set, get) => {
       const url = new URL(location.href);
       url.searchParams.set("room", code);
       history.replaceState(null, "", url);
-      document.title = `Sofa · ${code}`;
+      document.title = `Yappie · ${code}`;
       driftTimer = setInterval(() => {
         engine?.tick();
         set({ drift: engine?.getLastDrift() ?? null });
@@ -989,6 +1010,7 @@ export const useRoom = create<RoomState>((set, get) => {
         connection: "idle",
         hostId: "",
         roomLocked: false,
+        roomSlowMode: 0,
         videoId: null,
         playing: false,
         queue: [],
@@ -1008,7 +1030,7 @@ export const useRoom = create<RoomState>((set, get) => {
       const url = new URL(location.href);
       url.searchParams.delete("room");
       history.replaceState(null, "", url);
-      document.title = "Sofa — Watch YouTube together";
+      document.title = "Yappie — Watch YouTube together";
     },
 
     attachPlayer(adapter) {
@@ -1087,6 +1109,20 @@ export const useRoom = create<RoomState>((set, get) => {
       if (isMuted(selfMember)) {
         get().pushToast("You're muted", "error");
         return;
+      }
+      if (s.roomSlowMode > 0) {
+        let lastOwn = 0;
+        for (let i = s.messages.length - 1; i >= 0; i--) {
+          if (s.messages[i].senderId === profile.id) {
+            lastOwn = s.messages[i].ts;
+            break;
+          }
+        }
+        const waitMs = s.roomSlowMode * 1000 - (Date.now() - lastOwn);
+        if (waitMs > 0) {
+          get().pushToast(`Slow mode — wait ${Math.ceil(waitMs / 1000)}s`, "error");
+          return;
+        }
       }
       if (!chatOut.allow(profile.id) || !chatOutGap.allow(profile.id)) {
         get().pushToast("You're messaging too fast", "error");
@@ -1364,6 +1400,20 @@ export const useRoom = create<RoomState>((set, get) => {
       }
       set({ roomLocked: locked });
       get().pushToast(locked ? "Room locked — new guests can't join" : "Room unlocked");
+    },
+
+    async setSlowMode(seconds) {
+      const s = get();
+      const profile = selfProfile;
+      if (!profile || s.hostId !== profile.id || !s.code) return;
+      const clamped = Math.max(0, Math.min(300, Math.round(seconds)));
+      const ok = await saveRoomSettings(s.code, { slow_mode_seconds: clamped });
+      if (!ok) {
+        get().pushToast("Only the host can change slow mode", "error");
+        return;
+      }
+      set({ roomSlowMode: clamped });
+      get().pushToast(clamped ? `Slow mode: 1 message / ${clamped}s` : "Slow mode off");
     },
 
     requestControl() {

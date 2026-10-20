@@ -17,6 +17,7 @@ export interface RoomRow {
   granted_to?: string[] | null;
   watched?: WatchedEntry[] | null;
   password_hash?: string | null;
+  slow_mode_seconds?: number | null;
 }
 
 export interface QueueRow {
@@ -35,6 +36,7 @@ export interface MembershipRow {
   display_name: string;
   banned: boolean;
   muted_until: string | null;
+  kicked_until?: string | null;
   joined_at: string;
   left_at: string | null;
   last_seen: string;
@@ -84,6 +86,7 @@ function mapError(raw: string): RoomError {
   }
   if (msg.includes("password_wrong")) return new RoomError("password", "Wrong password", true);
   if (msg.includes("banned")) return new RoomError("banned", "You're banned from this room");
+  if (msg.includes("kicked")) return new RoomError("kicked", "You were kicked from this room");
   if (msg.includes("locked")) return new RoomError("locked", "The room is locked right now");
   if (msg.includes("rate_limited")) return new RoomError("rate", "Slow down — rooms created too fast");
   if (msg.includes("not_host")) return new RoomError("host", "Only the host can do that");
@@ -120,6 +123,7 @@ export interface JoinedRoom {
   videoId: string | null;
   requiresPassword: boolean;
   grantedTo: string[];
+  slowModeSeconds: number;
 }
 
 export async function joinRoomRpc(
@@ -146,6 +150,7 @@ export async function joinRoomRpc(
     videoId: (row.p_video_id as string | null) || null,
     requiresPassword: !!row.p_password_required,
     grantedTo: Array.isArray(row.p_granted_to) ? (row.p_granted_to as string[]) : [],
+    slowModeSeconds: Number(row.p_slow_mode) || 0,
   };
 }
 
@@ -187,6 +192,26 @@ export async function moderateMemberRpc(
     p_user_id: userId,
     p_banned: opts.banned ?? null,
     p_mute_seconds: opts.muteSeconds ?? null,
+  });
+  if (error) {
+    const mapped = mapError(rpcMsg(error));
+    if (mapped.code === "host") throw new RoomError("host", "Only the host can do that");
+    if (mapped.code === "member") throw new RoomError("member", "That person isn't in the room");
+    throw mapped;
+  }
+}
+
+export async function kickMemberRpc(
+  code: string,
+  userId: string,
+  minutes: number,
+): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) throw new RoomError("config", "Connect Supabase first");
+  const { error } = await supabase.rpc("kick_member", {
+    p_code: code,
+    p_user_id: userId,
+    p_minutes: minutes,
   });
   if (error) {
     const mapped = mapError(rpcMsg(error));
@@ -254,6 +279,7 @@ export async function saveRoomSettings(
     host_id?: string;
     granted_to?: string[];
     watched?: WatchedEntry[];
+    slow_mode_seconds?: number;
   },
 ): Promise<boolean> {
   const supabase = getSupabase();

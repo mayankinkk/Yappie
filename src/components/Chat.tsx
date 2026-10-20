@@ -23,6 +23,8 @@ export default function Chat() {
   const setTyping = useRoom((s) => s.setTyping);
   const typing = useRoom((s) => s.typing);
   const markChatRead = useRoom((s) => s.markChatRead);
+  const roomSlowMode = useRoom((s) => s.roomSlowMode);
+  const setSlowMode = useRoom((s) => s.setSlowMode);
   const myId = useSession((s) => s.profile?.id);
   const isHost = !!myId && myId === hostId;
   const [text, setText] = useState("");
@@ -72,6 +74,18 @@ export default function Chat() {
   }
 
   void tick;
+
+  // Slow mode: seconds left before *I* may send again (host is exempt).
+  let cooling = 0;
+  if (roomSlowMode > 0 && !isHost && myId) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].senderId === myId) {
+        cooling = Math.max(0, Math.ceil((messages[i].ts + roomSlowMode * 1000 - Date.now()) / 1000));
+        break;
+      }
+    }
+  }
+
   function insertEmoji(e: string) {
     const next = (text + e).slice(0, 500);
     setText(next);
@@ -93,6 +107,23 @@ export default function Chat() {
     <div className="card chat-card">
       <div className="card-head">
         <span>Chat</span>
+        {isHost && (
+          <select
+            className="slow-select"
+            title="Slow mode — min seconds between one person's messages"
+            aria-label="Chat slow mode"
+            value={[0, 3, 5, 10].includes(roomSlowMode) ? roomSlowMode : 0}
+            onChange={(e) => void setSlowMode(Number(e.target.value))}
+          >
+            <option value={0}>No slow</option>
+            <option value={3}>Slow 3s</option>
+            <option value={5}>Slow 5s</option>
+            <option value={10}>Slow 10s</option>
+          </select>
+        )}
+        {!isHost && roomSlowMode > 0 && (
+          <span className="slow-label">Slow {roomSlowMode}s</span>
+        )}
         {unread > 0 && <span className="unread-pill">{unread}</span>}
       </div>
       <div
@@ -209,7 +240,8 @@ export default function Chat() {
           className="field"
           type="text"
           maxLength={500}
-          placeholder="Say something…"
+          disabled={cooling > 0}
+          placeholder={cooling > 0 ? `Slow mode — ${cooling}s` : "Say something…"}
           value={text}
           onChange={(e) => {
             const v = e.target.value;
@@ -217,7 +249,7 @@ export default function Chat() {
             setTyping(v.trim().length > 0);
           }}
         />
-        <button type="submit" className="btn primary small">
+        <button type="submit" className="btn primary small" disabled={cooling > 0}>
           Send
         </button>
       </form>
