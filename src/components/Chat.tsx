@@ -141,8 +141,8 @@ export default function Chat() {
           const mine = m.senderId === myId;
           return (
             <div key={m.id} className={`msg ${mine ? "mine" : ""}`}>
-              <span className="avatar" style={{ ["--h" as string]: hue }}>
-                {initials(m.name)}
+              <span className={`avatar${m.avatar ? " emoji" : ""}`} style={{ ["--h" as string]: hue }}>
+                {m.avatar || initials(m.name)}
               </span>
               <div className="bubble">
                 <div className="msg-meta">

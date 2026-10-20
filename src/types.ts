@@ -2,6 +2,8 @@ export interface Profile {
   id: string;
   name: string;
   color: number;
+  /** Emoji shown instead of initials; empty = fall back to initials. */
+  avatar?: string;
 }
 
 export interface Participant {
@@ -9,6 +11,7 @@ export interface Participant {
   name: string;
   color: number;
   joinedAt: number;
+  avatar?: string;
 }
 
 export interface ChatMessage {
@@ -16,6 +19,7 @@ export interface ChatMessage {
   senderId: string;
   name: string;
   color: number;
+  avatar?: string;
   text: string;
   ts: number;
   reactions: Record<string, string[]>;

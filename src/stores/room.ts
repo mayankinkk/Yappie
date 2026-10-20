@@ -84,6 +84,7 @@ function rowToChat(row: ChatRow): ChatMessage {
     senderId: clampText(row.sender_id, 64),
     name: clampText(row.sender_name, 40) || "Guest",
     color: typeof row.color === "number" ? row.color : 30,
+    avatar: clampText(row.avatar || "", 8),
     text: clampText(row.text, 500),
     ts: Date.parse(row.created_at) || Date.now(),
     reactions:
@@ -689,7 +690,7 @@ export const useRoom = create<RoomState>((set, get) => {
       const now = Date.now();
       for (const key of Object.keys(state)) {
         const p = state[key][0] as unknown as
-          | { name?: string; color?: number; joinedAt?: number; typingAt?: number }
+          | { name?: string; color?: number; joinedAt?: number; typingAt?: number; avatar?: string }
           | undefined;
         if (!p) continue;
         if (
@@ -705,6 +706,7 @@ export const useRoom = create<RoomState>((set, get) => {
           name: p.name || "Guest",
           color: typeof p.color === "number" ? p.color : 30,
           joinedAt: p.joinedAt || Date.now(),
+          avatar: typeof p.avatar === "string" ? p.avatar : "",
         });
       }
       set({ typing: typingMap });
@@ -726,7 +728,13 @@ export const useRoom = create<RoomState>((set, get) => {
       }
 
       if (!list.some((x) => x.id === profile.id)) {
-        list.push({ id: profile.id, name: profile.name, color: profile.color, joinedAt: Date.now() });
+        list.push({
+          id: profile.id,
+          name: profile.name,
+          color: profile.color,
+          joinedAt: Date.now(),
+          avatar: profile.avatar || "",
+        });
       }
       set({ participants: list });
 
@@ -748,6 +756,7 @@ export const useRoom = create<RoomState>((set, get) => {
           void channel.track({
             name: profile.name,
             color: profile.color,
+            avatar: profile.avatar || "",
             joinedAt: presenceJoinedAt,
           });
           void get().loadMembers();
@@ -1138,6 +1147,7 @@ export const useRoom = create<RoomState>((set, get) => {
         senderId: profile.id,
         name: profile.name,
         color: profile.color,
+        avatar: profile.avatar || "",
         text: text.trim().slice(0, 500),
         ts: Date.now(),
         reactions: {},
@@ -1150,6 +1160,7 @@ export const useRoom = create<RoomState>((set, get) => {
           sender_id: msg.senderId,
           sender_name: msg.name,
           color: msg.color,
+          avatar: msg.avatar,
           text: msg.text,
         })
         .then(({ error }: { error: { message?: string } | null }) => {
@@ -1217,6 +1228,7 @@ export const useRoom = create<RoomState>((set, get) => {
       const payload = () => ({
         name: selfProfile!.name,
         color: selfProfile!.color,
+        avatar: selfProfile!.avatar || "",
         joinedAt: presenceJoinedAt,
         typingAt: active ? Date.now() : 0,
       });
@@ -1228,6 +1240,7 @@ export const useRoom = create<RoomState>((set, get) => {
             void presenceChannel.track({
               name: selfProfile.name,
               color: selfProfile.color,
+              avatar: selfProfile.avatar || "",
               joinedAt: presenceJoinedAt,
               typingAt: Date.now(),
             });

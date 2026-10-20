@@ -1533,6 +1533,77 @@ input[type="range"].volume:disabled {
   font-size: 0.65rem;
 }
 
+.avatar.emoji {
+  font-size: 0.95rem;
+  text-transform: none;
+}
+
+.avatar-pick {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.avatar-pick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 0 2px;
+}
+
+.avatar-pick-hint {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.avatar-pick-btn:hover .avatar-pick-hint {
+  color: var(--text);
+}
+
+.avatar-grid {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  gap: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+}
+
+.avatar-cell {
+  font-size: 1.15rem;
+  padding: 4px;
+  border-radius: 8px;
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.avatar-cell:hover {
+  background: var(--panel);
+}
+
+.avatar-cell.active {
+  border-color: var(--accent);
+}
+
+.avatar-cell.initials {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
 .queue-card .queue-body {
   max-height: 180px;
   overflow-y: auto;

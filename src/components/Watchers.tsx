@@ -31,8 +31,8 @@ export default function Watchers() {
       <div className="watchers-body">
         {sorted.length === 0 && myId && (
           <span className="watcher-chip you">
-            <span className="avatar sm" style={{ ["--h" as string]: useSession.getState().profile?.color ?? 30 }}>
-              {initials(useSession.getState().profile?.name || "?")}
+            <span className={`avatar sm${useSession.getState().profile?.avatar ? " emoji" : ""}`} style={{ ["--h" as string]: useSession.getState().profile?.color ?? 30 }}>
+              {useSession.getState().profile?.avatar || initials(useSession.getState().profile?.name || "?")}
             </span>
             <span className="name">You</span>
           </span>
@@ -53,8 +53,8 @@ export default function Watchers() {
                 title={p.id === hostId ? `${p.name} (host)` : p.name}
                 onClick={() => canModerate && setExpanded(open ? null : p.id)}
               >
-                <span className="avatar sm" style={{ ["--h" as string]: p.color }}>
-                  {initials(p.name)}
+                <span className={`avatar sm${p.avatar ? " emoji" : ""}`} style={{ ["--h" as string]: p.color }}>
+                  {p.avatar || initials(p.name)}
                 </span>
                 <span className="name">
                   {p.id === myId ? `${p.name} (you)` : p.name}

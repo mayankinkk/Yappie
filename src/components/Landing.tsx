@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { useSession } from "../stores/session";
+import { useSession, AVATAR_EMOJIS } from "../stores/session";
 import { useRoom } from "../stores/room";
 import { sanitizeCode } from "../lib/ids";
 import { isSupabaseConfigured } from "../lib/supabase";
 import { loadRecentRooms } from "../lib/recent";
 import { RoomError } from "../lib/rooms-api";
-import { SofaMark } from "../App";
+import { YappieMark } from "../App";
 
 interface Props {
   onNeedSetup: () => void;
@@ -15,6 +15,7 @@ interface Props {
 export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
   const profile = useSession((s) => s.profile);
   const setName = useSession((s) => s.setName);
+  const setAvatar = useSession((s) => s.setAvatar);
   const signInWithGoogle = useSession((s) => s.signInWithGoogle);
   const createRoom = useRoom((s) => s.createRoom);
   const joinRoom = useRoom((s) => s.joinRoom);
@@ -29,6 +30,7 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
   const [passwordError, setPasswordError] = useState("");
   const [createProtected, setCreateProtected] = useState(false);
   const [roomPassword, setRoomPassword] = useState("");
+  const [avatarOpen, setAvatarOpen] = useState(false);
   const [recent] = useState(loadRecentRooms);
 
   useEffect(() => {
@@ -120,10 +122,55 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
     <div className="screen landing-wrap">
       <div className={`landing-card ${shake > 0 ? "shake" : ""}`} key={shake}>
         <div className="logo">
-          <SofaMark size={34} />
-          Sofa
+          <YappieMark size={34} />
+          Yappie
         </div>
         <p className="tagline">Watch YouTube together, perfectly in sync.</p>
+        <div className="avatar-pick">
+          <button
+            type="button"
+            className="avatar-pick-btn"
+            aria-label="Pick an avatar"
+            aria-expanded={avatarOpen}
+            onClick={() => setAvatarOpen((v) => !v)}
+          >
+            <span className={`avatar${profile?.avatar ? " emoji" : ""}`} style={{ ["--h" as string]: profile?.color ?? 30 }}>
+              {profile?.avatar || "Aa"}
+            </span>
+            <span className="avatar-pick-hint">
+              {profile?.avatar ? "Change avatar" : "Pick an avatar"}
+            </span>
+          </button>
+          {avatarOpen && (
+            <div className="avatar-grid" role="menu" aria-label="Avatar picker">
+              {AVATAR_EMOJIS.map((e) => (
+                <button
+                  key={e}
+                  type="button"
+                  className={`avatar-cell ${profile?.avatar === e ? "active" : ""}`}
+                  role="menuitem"
+                  onClick={() => {
+                    setAvatar(e);
+                    setAvatarOpen(false);
+                  }}
+                >
+                  {e}
+                </button>
+              ))}
+              <button
+                type="button"
+                className={`avatar-cell initials ${!profile?.avatar ? "active" : ""}`}
+                title="Use initials"
+                onClick={() => {
+                  setAvatar("");
+                  setAvatarOpen(false);
+                }}
+              >
+                Aa
+              </button>
+            </div>
+          )}
+        </div>
         <input
           id="name-input"
           className="field"

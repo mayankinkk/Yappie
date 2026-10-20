@@ -48,6 +48,7 @@ export interface ChatRow {
   sender_id: string;
   sender_name: string;
   color: number;
+  avatar?: string | null;
   text: string;
   created_at: string;
   reactions?: Record<string, string[]> | null;

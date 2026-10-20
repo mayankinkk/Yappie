@@ -4,12 +4,19 @@ import { getSupabase, isSupabaseConfigured } from "../lib/supabase";
 import { nameHue, randomId } from "../lib/ids";
 import { setTelemetryUser } from "../lib/telemetry";
 
-const LS_PROFILE = "sofa.profile";
+const LS_PROFILE = "yappie.profile";
+
+/** Emoji avatar shown instead of initials; empty = initials fallback. */
+export const AVATAR_EMOJIS = [
+  "🍿", "🎬", "🎧", "🎮", "🐶", "🐱", "🦊", "🐼",
+  "👽", "🤖", "🔥", "✨", "🌙", "🌈", "🍕", "☕",
+];
 
 interface StoredProfile {
   id?: string;
   name: string;
   color: number;
+  avatar?: string;
 }
 
 function readStored(): StoredProfile | null {
@@ -29,12 +36,34 @@ interface SessionState {
   initialized: boolean;
   init(): Promise<Profile>;
   setName(name: string): void;
+  setAvatar(avatar: string): void;
   signInWithGoogle(): Promise<string | null>;
   ensureIdentity(): Promise<Profile>;
   ensureAuthed(): Promise<Profile | null>;
 }
 
 let initPromise: Promise<Profile> | null = null;
+
+/** Fire-and-forget: persist the profile to user_profiles (own-row RLS). */
+function upsertServerProfile(profile: Profile): void {
+  const supabase = getSupabase();
+  if (!supabase || !profile.id) return;
+  void supabase
+    .from("user_profiles")
+    .upsert(
+      {
+        user_id: profile.id,
+        name: profile.name,
+        avatar: profile.avatar || "",
+        color: profile.color,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    )
+    .then(({ error }: { error: { message?: string } | null }) => {
+      if (error) console.debug("[profile] upsert failed:", error.message);
+    });
+}
 
 /**
  * Guarantees an authenticated Supabase session and that profile.id === auth.uid().
@@ -64,6 +93,7 @@ export async function ensureAuthed(): Promise<Profile | null> {
     id: uid,
     name: current?.name && current.name !== "Guest" ? current.name : "Guest",
     color: current?.color ?? nameHue(uid),
+    avatar: current?.avatar || "",
   };
   persist(profile);
   useSession.setState({ profile });
@@ -81,6 +111,7 @@ export const useSession = create<SessionState>((set, get) => ({
       let name = stored?.name?.trim() || "";
       let id = stored?.id || "";
       let color = typeof stored?.color === "number" ? stored.color : nameHue(name || "Guest");
+      let avatar = typeof stored?.avatar === "string" ? stored.avatar : "";
 
       if (isSupabaseConfigured()) {
         const supabase = getSupabase();
@@ -102,6 +133,22 @@ export const useSession = create<SessionState>((set, get) => ({
               const metaName = String(meta?.full_name || meta?.name || "").trim().slice(0, 24);
               if (metaName && (!name || name === "Guest")) name = metaName;
               if (!name) color = nameHue(id);
+              // Server profile fills the blanks this device hasn't set yet.
+              try {
+                const { data: row } = await supabase
+                  .from("user_profiles")
+                  .select("name, avatar, color")
+                  .eq("user_id", id)
+                  .maybeSingle();
+                if (row) {
+                  const serverName = String(row.name || "").trim().slice(0, 24);
+                  if (serverName && (!name || name === "Guest")) name = serverName;
+                  if (typeof row.avatar === "string" && row.avatar && !avatar) avatar = row.avatar;
+                  if (typeof row.color === "number" && (!stored || stored.color === undefined)) color = row.color;
+                }
+              } catch {
+                /* profile row not readable yet — local values stand */
+              }
             }
           } catch {
             /* offline or auth disabled — fall back to local id */
@@ -110,7 +157,7 @@ export const useSession = create<SessionState>((set, get) => ({
       }
       if (!id) id = randomId();
 
-      const profile: Profile = { id, name: name || "Guest", color };
+      const profile: Profile = { id, name: name || "Guest", color, avatar };
       persist(profile);
       set({ profile, initialized: true });
       setTelemetryUser(id);
@@ -126,9 +173,24 @@ export const useSession = create<SessionState>((set, get) => ({
       id: current?.id || randomId(),
       name: trimmed,
       color: current?.color ?? nameHue(trimmed),
+      avatar: current?.avatar || "",
     };
     persist(profile);
     set({ profile });
+    upsertServerProfile(profile);
+  },
+
+  setAvatar(avatar: string): void {
+    const current = get().profile;
+    const profile: Profile = {
+      id: current?.id || randomId(),
+      name: current?.name || "Guest",
+      color: current?.color ?? nameHue(current?.name || "Guest"),
+      avatar,
+    };
+    persist(profile);
+    set({ profile });
+    upsertServerProfile(profile);
   },
 
   async signInWithGoogle(): Promise<string | null> {
