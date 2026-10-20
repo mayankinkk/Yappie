@@ -116,7 +116,7 @@ export default function QueuePanel() {
         />
       </div>
       {isHost && <div className="queue-hint">You're the host — you control what plays.</div>}
-      {!isHost && <div className="queue-hint">Anyone can queue · the host plays.</div>}
+      {!isHost && <div className="queue-hint">Anyone can queue · most-voted plays next.</div>}
     </div>
   );
 }

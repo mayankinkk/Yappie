@@ -292,6 +292,8 @@ export default function Room() {
                 <div className="up-next-info">
                   <span className="up-next-label">
                     Up next in {Math.max(0, Math.ceil((upNext.endsAt - nowTs) / 1000))}s
+                    {Object.keys(upNext.item.votes).length > 0 &&
+                      ` · ${Object.keys(upNext.item.votes).length} vote${Object.keys(upNext.item.votes).length === 1 ? "" : "s"}`}
                   </span>
                   <span className="up-next-title">{upNext.item.title || upNext.item.videoId}</span>
                 </div>

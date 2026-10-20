@@ -409,8 +409,13 @@ export const useRoom = create<RoomState>((set, get) => {
 
   function startUpNext(): void {
     const s = get();
-    if (s.upNext || !s.queue[0]) return;
-    set({ upNext: { item: s.queue[0], endsAt: Date.now() + 5000 } });
+    if (s.upNext || !s.queue.length) return;
+    // Upvote-to-play: most votes wins when the video ends; ties keep queue order.
+    let best = s.queue[0];
+    for (const item of s.queue) {
+      if (Object.keys(item.votes).length > Object.keys(best.votes).length) best = item;
+    }
+    set({ upNext: { item: best, endsAt: Date.now() + 5000 } });
     upNextTimer = setTimeout(() => {
       upNextTimer = null;
       advanceFromQueue();
