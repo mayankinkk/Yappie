@@ -483,6 +483,29 @@ a {
     padding: 8px 10px;
   }
 
+  /* The scrubber is the only flexible child — without a floor it collapses
+     to 0px once the fixed-width buttons claim the row, and touch seeking
+     becomes impossible. Theater/help are desktop affordances. */
+  .controls input[type="range"].seek {
+    min-width: 56px;
+  }
+
+  /* Thin on desktop; on touch fingers need a taller grab zone. */
+  @media (pointer: coarse) {
+    .controls input[type="range"].seek {
+      height: 14px;
+    }
+  }
+
+  .controls .time-label {
+    min-width: 84px;
+  }
+
+  .controls .theater-btn,
+  .controls .help-btn {
+    display: none;
+  }
+
   .time-label {
     min-width: 84px;
     font-size: 0.74rem;
