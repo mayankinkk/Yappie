@@ -62,7 +62,7 @@ export function useVoice(roomCode: string) {
     if (!state.supported || roomRef.current) return;
     setState((s) => ({ ...s, connecting: true, error: null }));
     try {
-      const [{ Room, RoomEvent }, creds] = await Promise.all([
+      const [{ Room, RoomEvent, Track }, creds] = await Promise.all([
         import("livekit-client"),
         fetchLiveKitToken(roomCode, profile?.name || "Guest"),
       ]);
@@ -78,12 +78,33 @@ export function useVoice(roomCode: string) {
       room.on(RoomEvent.ActiveSpeakersChanged, refreshParticipants);
       room.on(RoomEvent.TrackMuted, refreshParticipants);
       room.on(RoomEvent.LocalTrackUnpublished, refreshParticipants);
+      // Remote audio is subscribed automatically but never played until the
+      // track is attached to an audio element. Without this, the speaking
+      // avatar lights up (levels arrive via the SFU) while everyone hears
+      // silence.
+      room.on(RoomEvent.TrackSubscribed, (track) => {
+        if (track.kind === Track.Kind.Audio) {
+          track.attach();
+          // Browsers may block autoplay until a user gesture; join was one.
+          room.startAudio().catch(() => {});
+        }
+      });
+      room.on(RoomEvent.TrackUnsubscribed, (track) => {
+        track.detach();
+      });
       room.on(RoomEvent.Disconnected, () => {
         roomRef.current = null;
         setState((s) => ({ ...s, joined: false, micOn: false, participants: [] }));
       });
       await room.connect(creds.url, creds.token);
       await room.localParticipant.setMicrophoneEnabled(true);
+      // Attach any remote audio that arrived before the listeners were live
+      // (rare race, cheap to cover).
+      for (const p of room.remoteParticipants.values()) {
+        for (const pub of p.audioTrackPublications.values()) {
+          pub.track?.attach();
+        }
+      }
       setState((s) => ({ ...s, joined: true, connecting: false, micOn: true }));
       refreshParticipants();
     } catch {
@@ -102,6 +123,8 @@ export function useVoice(roomCode: string) {
   const toggleMic = useCallback(async () => {
     const room = roomRef.current;
     if (!room) return;
+    // Mic click is a user gesture — retry blocked remote-audio playback.
+    room.startAudio().catch(() => {});
     const next = !state.micOn;
     await room.localParticipant.setMicrophoneEnabled(next);
     setState((s) => ({ ...s, micOn: next }));

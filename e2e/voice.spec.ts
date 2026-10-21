@@ -84,6 +84,24 @@ test.describe("voice", () => {
       await expect(b.locator(".voice-people .voice-person:nth-child(2).speaking")).toBeVisible({
         timeout: 30_000,
       });
+
+      // --- Playback: an attached <audio> element must actually be running.
+      //     Speaking indicators come from server-side levels and can be true
+      //     even when nothing plays locally; an advancing currentTime is the
+      //     real proof that the listener can hear anything.
+      for (const page of [a, b]) {
+        await expect
+          .poll(
+            async () =>
+              page.evaluate(() =>
+                [...document.querySelectorAll("audio")].some(
+                  (el) => !el.paused && el.currentTime > 0,
+                ),
+              ),
+            { timeout: 30_000 },
+          )
+          .toBe(true);
+      }
     } finally {
       await aCtx.close();
       await bCtx.close();
