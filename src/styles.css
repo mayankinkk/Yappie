@@ -567,9 +567,9 @@ a {
   flex-direction: column;
   gap: 10px;
   min-width: 0;
-  /* Absorbs the shrink on short windows; load bar / meta / reactions / voice
-     keep their content heights (min-height:auto). */
-  min-height: 0;
+  /* min-height stays auto: the block shrinks with the stage until it hits
+     its min-content (player floor + controls), then the stage scrolls —
+     never letting the controls spill onto the rows below. */
 }
 
 /* Fullscreen target: player fills the screen, controls dock at the bottom. */
@@ -585,6 +585,7 @@ a {
 .cinema:-webkit-full-screen .player-wrap {
   flex: 1 1 auto;
   aspect-ratio: auto;
+  max-height: none;
   border: none;
   border-radius: 0;
 }
@@ -601,13 +602,30 @@ a {
 .player-wrap {
   position: relative;
   aspect-ratio: 16 / 9;
-  /* 16:9 is the preferred size, but on short windows the frame yields height
-     (down to this floor) so the bars below the player stay reachable. */
+  /* 16:9 is preferred, but cap the frame by the height left for the rows
+     below (controls, load, meta, reactions, voice ≈ 291px + shell chrome
+     83px) so they stay in view without any flex-shrink games. Once even
+     the 160px floor won't fit, the stage scrolls instead. */
+  max-height: calc(100vh - 374px);
   min-height: 160px;
   background: #000;
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--border-soft);
+}
+
+/* The page scrolls below 980px, so nothing clips below the fold — undo the
+   desktop stage-shrink rules (must sit after them in source order to win). */
+@media (max-width: 980px) {
+  .stage {
+    min-height: auto;
+    overflow-y: visible;
+  }
+
+  .player-wrap {
+    min-height: 0;
+    max-height: none;
+  }
 }
 
 .player-host,
