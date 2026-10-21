@@ -243,6 +243,7 @@ export default function Chat() {
           disabled={cooling > 0}
           placeholder={cooling > 0 ? `Slow mode — ${cooling}s` : "Say something…"}
           value={text}
+          onFocus={() => inputRef.current?.scrollIntoView({ block: "nearest" })}
           onChange={(e) => {
             const v = e.target.value;
             setText(v);

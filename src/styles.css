@@ -463,7 +463,18 @@ a {
 
   /* Keep the tab bar and player reachable: chat scrolls internally. */
   .messages {
-    max-height: 55vh;
+    max-height: 60vh;
+  }
+
+  /* The page itself scrolls on mobile, so the composer would land below
+     the fold at the end of a tall stack. Pin it to the viewport bottom
+     (with home-bar safe area) so the message box is always reachable. */
+  .chat-form {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    background: var(--panel);
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
   }
 }
 
@@ -521,6 +532,22 @@ a {
 
   .load-bar {
     flex-wrap: wrap;
+  }
+
+  /* Composer row is tight at 390px — shrink the gutters so the input
+     keeps usable width and Send isn't clipped at the edge. */
+  .chat-form {
+    gap: 6px;
+    padding: 8px 10px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+
+  .chat-form .btn.small {
+    padding: 7px 10px;
+  }
+
+  .emoji-btn {
+    width: 34px;
   }
 }
 
