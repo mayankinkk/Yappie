@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>WatchParty Sync</h1>
+      <span class="status" id="status">idle</span>
+    </header>
+
+    <section class="field">
+      <label for="name">Your name</label>
+      <input id="name" type="text" maxlength="24" placeholder="Guest" autocomplete="off" />
+    </section>
+
+    <section id="idle">
+      <button class="primary" id="create">Create a room</button>
+
+      <div class="divider"><span>or join</span></div>
+
+      <form id="joinForm" class="row">
+        <input id="code" type="text" maxlength="6" placeholder="CODE" autocomplete="off" />
+        <button type="submit" class="secondary">Join</button>
+      </form>
+    </section>
+
+    <section id="active" hidden>
+      <div class="roombox">
+        <div class="roomlabel">Room</div>
+        <div class="roomcode" id="roomCode">—</div>
+        <div class="roommeta" id="roomMeta"></div>
+      </div>
+      <div class="row">
+        <button class="secondary" id="copyLink">Copy invite link</button>
+        <button class="danger" id="leave">Leave</button>
+      </div>
+    </section>
+
+    <details>
+      <summary>Advanced</summary>
+      <section class="field">
+        <label for="relay">Relay server</label>
+        <input id="relay" type="text" placeholder="wss://your-relay.example" spellcheck="false" />
+        <p class="hint" id="relayHint">Defaults to the built-in relay. Must be <code>wss://</code> when browsing over https.</p>
+      </section>
+    </details>
+
+    <p class="note" id="note" hidden></p>
+
+    <script src="config.js"></script>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

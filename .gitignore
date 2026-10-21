@@ -12,3 +12,8 @@ supabase/.temp/
 *.apk
 .vercel
 .env*
+
+# watchparty extension
+watchparty-ext/e2e/fixtures/
+Unconfirmed *.crdownload
+Opencode-CLI-Jailbreak-main-extracted/

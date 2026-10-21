@@ -1,0 +1,7 @@
+node_modules/
+e2e/fixtures/
+*.log
+.DS_Store
+
+# NOTE: relay/ has its own package-lock.json (intentionally committed so
+# `npm ci` works in CI and Docker). It lives under relay/, not here.

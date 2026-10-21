@@ -1,0 +1,16 @@
+{
+  "name": "watchparty-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "In-memory WebSocket relay for the WatchParty Sync extension. Holds no video data — only control events and chat.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
