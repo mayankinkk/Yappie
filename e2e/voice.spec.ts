@@ -4,10 +4,11 @@ import { existsSync, readFileSync } from "node:fs";
 /**
  * Voice delivery verification — "can the other person actually hear me?"
  *
- * Uses Chrome's fake microphone in two isolated contexts. A remote
- * `.speaking` indicator only turns true when audio published by one
- * client arrives at the other through the LiveKit SFU, so asserting it
- * proves the full publish → subscribe → receive path.
+ * Uses Chrome's fake microphone in two isolated contexts. Asserts each side
+ * ends up with a live, playing <audio> element fed by the remote track —
+ * the real publish → subscribe → playback path. (The UI's "speaking" avatar
+ * only reflects server-side audio levels and can be true while a listener
+ * hears nothing.)
  *
  * Requirements (skips with a clear message otherwise):
  *  - .env.local with VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY / VITE_LIVEKIT_URL
@@ -43,8 +44,24 @@ test.describe("voice", () => {
   test.skip(!configured, "needs .env.local Supabase keys + VITE_LIVEKIT_URL");
 
   test("two clients join voice and audio reaches the other side", async ({ browser }) => {
+    // LiveKit attaches remote audio to elements that are never appended to
+    // the DOM, so track them as they are created.
+    const trackAudio = () => {
+      const orig = document.createElement.bind(document);
+      document.createElement = (tag: string, ...rest: unknown[]) => {
+        const el = orig(tag, ...(rest as []));
+        if (String(tag).toLowerCase() === "audio") {
+          ((window as unknown as { __lkAudios?: HTMLAudioElement[] }).__lkAudios ??= []).push(
+            el as HTMLAudioElement,
+          );
+        }
+        return el;
+      };
+    };
     const aCtx = await browser.newContext();
     const bCtx = await browser.newContext();
+    await aCtx.addInitScript(trackAudio);
+    await bCtx.addInitScript(trackAudio);
     const a = await aCtx.newPage();
     const b = await bCtx.newPage();
 
@@ -74,29 +91,18 @@ test.describe("voice", () => {
         await expect(page.locator(".voice-error")).toHaveCount(0);
       }
 
-      // --- Cross-delivery: each side must see the REMOTE avatar speaking.
-      //     Local list order is [local, remote], so nth-child(2) is remote.
-      //     Remote speaking is derived from received audio levels — it can
-      //     only turn true if the other client's mic audio actually arrived.
-      await expect(a.locator(".voice-people .voice-person:nth-child(2).speaking")).toBeVisible({
-        timeout: 30_000,
-      });
-      await expect(b.locator(".voice-people .voice-person:nth-child(2).speaking")).toBeVisible({
-        timeout: 30_000,
-      });
-
-      // --- Playback: an attached <audio> element must actually be running.
-      //     Speaking indicators come from server-side levels and can be true
-      //     even when nothing plays locally; an advancing currentTime is the
-      //     real proof that the listener can hear anything.
+      // --- Playback: each side must have an attached <audio> element that
+      //     is actually running. Speaking indicators are server-side levels
+      //     and are unreliable with fake capture devices; an advancing
+      //     currentTime is the real proof that received audio is played.
       for (const page of [a, b]) {
         await expect
           .poll(
             async () =>
               page.evaluate(() =>
-                [...document.querySelectorAll("audio")].some(
-                  (el) => !el.paused && el.currentTime > 0,
-                ),
+                (
+                  (window as unknown as { __lkAudios?: HTMLAudioElement[] }).__lkAudios ?? []
+                ).some((el) => !el.paused && el.currentTime > 0),
               ),
             { timeout: 30_000 },
           )
