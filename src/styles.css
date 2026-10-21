@@ -556,6 +556,10 @@ a {
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  /* Desktop body is a fixed shell (overflow:hidden) — without this the stage
+     ignores the grid row cap and clips the reactions/voice bars below the fold. */
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .cinema {
@@ -563,6 +567,9 @@ a {
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  /* Absorbs the shrink on short windows; load bar / meta / reactions / voice
+     keep their content heights (min-height:auto). */
+  min-height: 0;
 }
 
 /* Fullscreen target: player fills the screen, controls dock at the bottom. */
@@ -594,6 +601,9 @@ a {
 .player-wrap {
   position: relative;
   aspect-ratio: 16 / 9;
+  /* 16:9 is the preferred size, but on short windows the frame yields height
+     (down to this floor) so the bars below the player stay reachable. */
+  min-height: 160px;
   background: #000;
   border-radius: var(--radius);
   overflow: hidden;
