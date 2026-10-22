@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Room, RemoteParticipant } from "livekit-client";
+import type { LocalTrackPublication, Room, RemoteParticipant } from "livekit-client";
 import { fetchLiveKitToken, isVoiceConfigured } from "../lib/supabase";
 import { useSession } from "../stores/session";
 
@@ -31,6 +31,7 @@ export function useVoice(roomCode: string) {
     participants: [],
   });
   const roomRef = useRef<Room | null>(null);
+  const micPubRef = useRef<LocalTrackPublication | null>(null);
 
   const refreshParticipants = useCallback(() => {
     const room = roomRef.current;
@@ -94,10 +95,16 @@ export function useVoice(roomCode: string) {
       });
       room.on(RoomEvent.Disconnected, () => {
         roomRef.current = null;
+        micPubRef.current = null;
         setState((s) => ({ ...s, joined: false, micOn: false, participants: [] }));
       });
       await room.connect(creds.url, creds.token);
-      await room.localParticipant.setMicrophoneEnabled(true);
+      // Acquire + publish the mic immediately (one permission prompt at join,
+      // Discord-style) but start MUTED — one click on Join must never open a
+      // hot mic to the room. Unmute is an explicit second action.
+      const micPub = await room.localParticipant.setMicrophoneEnabled(true);
+      await micPub?.mute();
+      micPubRef.current = micPub ?? null;
       // Attach any remote audio that arrived before the listeners were live
       // (rare race, cheap to cover).
       for (const p of room.remoteParticipants.values()) {
@@ -105,7 +112,7 @@ export function useVoice(roomCode: string) {
           pub.track?.attach();
         }
       }
-      setState((s) => ({ ...s, joined: true, connecting: false, micOn: true }));
+      setState((s) => ({ ...s, joined: true, connecting: false, micOn: false }));
       refreshParticipants();
     } catch {
       roomRef.current = null;
@@ -116,6 +123,7 @@ export function useVoice(roomCode: string) {
   const leave = useCallback(() => {
     const room = roomRef.current;
     roomRef.current = null;
+    micPubRef.current = null;
     void room?.disconnect();
     setState((s) => ({ ...s, joined: false, micOn: false, participants: [], error: null }));
   }, []);
@@ -126,7 +134,13 @@ export function useVoice(roomCode: string) {
     // Mic click is a user gesture — retry blocked remote-audio playback.
     room.startAudio().catch(() => {});
     const next = !state.micOn;
-    await room.localParticipant.setMicrophoneEnabled(next);
+    if (micPubRef.current) {
+      // Already published — flipping mute is instant, no device re-acquire.
+      if (next) await micPubRef.current.unmute();
+      else await micPubRef.current.mute();
+    } else {
+      await room.localParticipant.setMicrophoneEnabled(next);
+    }
     setState((s) => ({ ...s, micOn: next }));
     refreshParticipants();
   }, [state.micOn, refreshParticipants]);
