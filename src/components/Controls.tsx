@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { YouTubePlayer } from "../player/YouTubePlayer";
 import { useRoom } from "../stores/room";
 import { useSession } from "../stores/session";
@@ -45,6 +45,13 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
   const [fsIdle, setFsIdle] = useState(false);
   const sliderRef = useRef<HTMLInputElement>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
+
+  const toggleCaptions = useCallback(() => {
+    const next = !caps;
+    setCaps(next);
+    setCaptionsEnabled(next);
+    player?.setCaptionsEnabled(next);
+  }, [caps, player]);
 
   useEffect(() => {
     localStorage.setItem("yappie.volume", String(volume));
@@ -170,14 +177,7 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [togglePlayback, requestControl, seekTo, canControl, disabled, player, duration, muted, volume, caps, onToggleTheater]);
-
-  function toggleCaptions() {
-    const next = !caps;
-    setCaps(next);
-    setCaptionsEnabled(next);
-    player?.setCaptionsEnabled(next);
-  }
+  }, [togglePlayback, requestControl, seekTo, canControl, disabled, player, duration, muted, volume, caps, onToggleTheater, toggleCaptions]);
 
   function onSeekCommit() {
     setSeeking(false);
