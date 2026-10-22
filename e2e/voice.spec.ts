@@ -119,7 +119,9 @@ test.describe("voice", () => {
         await page.getByRole("button", { name: "Turn camera on" }).click();
       }
       for (const page of [a, b]) {
-        await expect(page.locator(".video-strip .video-tile")).toHaveCount(2, {
+        await expect(
+          page.locator(".video-strip:not(.video-strip-float) .video-tile"),
+        ).toHaveCount(2, {
           timeout: 30_000,
         });
         await expect
@@ -127,7 +129,7 @@ test.describe("voice", () => {
             () =>
               page.evaluate(() => {
                 const el = document.querySelector<HTMLVideoElement>(
-                  '.video-strip .video-tile[data-self="peer"] video',
+                  '.video-strip:not(.video-strip-float) .video-tile[data-self="peer"] video',
                 );
                 return !!el && el.videoWidth > 0;
               }),
@@ -137,15 +139,42 @@ test.describe("voice", () => {
         // The desktop stage is a fixed-height flex column; a strip without
         // flex:none collapses to ~1px while still decoding frames. Assert a
         // real rendered height so this can't regress silently.
-        const box = await page.locator('.video-strip .video-tile[data-self="peer"]').boundingBox();
+        const box = await page
+          .locator('.video-strip:not(.video-strip-float) .video-tile[data-self="peer"]')
+          .boundingBox();
         expect(box?.height ?? 0).toBeGreaterThan(50);
         // Product rule: tile video must stay un-mirrored (scaleX(-1) applied).
         const tf = await page.evaluate(() => {
-          const el = document.querySelector(".video-strip video");
+          const el = document.querySelector(".video-strip:not(.video-strip-float) video");
           return el ? getComputedStyle(el).transform : "none";
         });
         expect(tf).not.toBe("none");
       }
+
+      // --- Fullscreen float: the strip renders as a floating overlay inside
+      //     .cinema (visible only via :fullscreen), defaults to the right
+      //     side, drags freely, and snaps to the nearest edge on release.
+      await a.evaluate(() => document.querySelector(".cinema")?.requestFullscreen());
+      const floatStrip = a.locator(".video-strip-float");
+      await expect(floatStrip).toBeVisible({ timeout: 10_000 });
+      const fsBox = await floatStrip.boundingBox();
+      expect(fsBox?.height ?? 0).toBeGreaterThan(50);
+      const vp = a.viewportSize()!;
+      expect(fsBox!.x).toBeGreaterThan(vp.width / 2); // default: right half
+
+      // Drag toward the left → release snaps it flush to the left edge.
+      await a.mouse.move(fsBox!.x + fsBox!.width / 2, fsBox!.y + fsBox!.height / 2);
+      await a.mouse.down();
+      await a.mouse.move(vp.width * 0.15, fsBox!.y + fsBox!.height / 2, { steps: 12 });
+      await a.mouse.up();
+      await expect
+        .poll(async () => (await floatStrip.boundingBox())?.x ?? 9999, { timeout: 5_000 })
+        .toBeLessThan(30);
+
+      // Exit fullscreen → floating copy disappears, under-player strip stays.
+      await a.evaluate(() => document.exitFullscreen());
+      await expect(floatStrip).toBeHidden();
+      await expect(a.locator(".video-strip:not(.video-strip-float)")).toBeVisible();
     } finally {
       await aCtx.close();
       await bCtx.close();

@@ -313,6 +313,8 @@ export default function Room() {
             )}
             </div>
 
+            <VideoStrip voice={voice} floating />
+
             <Controls
               player={player}
               playing={playing}

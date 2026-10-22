@@ -567,6 +567,8 @@ a {
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  /* Containing block for the floating camera overlay (absolute drag). */
+  position: relative;
   /* min-height stays auto: the block shrinks with the stage until it hits
      its min-content (player floor + controls), then the stage scrolls —
      never letting the controls spill onto the rows below. */
@@ -1487,6 +1489,46 @@ input[type="range"].volume:disabled {
   background: rgba(0, 0, 0, 0.55);
   padding: 1px 6px;
   border-radius: 6px;
+}
+
+/* Floating camera overlay: rendered inside .cinema, shown only while that
+   element is fullscreen (:fullscreen pseudo — no JS visibility detection).
+   Default anchor is bottom-right above the controls; drag overrides with an
+   inline transform and snaps to the nearest edge on release. */
+.video-strip-float {
+  display: none;
+  position: absolute;
+  right: 12px;
+  bottom: 76px;
+  z-index: 10;
+  margin: 0;
+  padding: 6px;
+  max-width: calc(100% - 24px);
+  background: rgba(12, 10, 9, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  backdrop-filter: blur(8px);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  will-change: transform;
+}
+
+.cinema:fullscreen .video-strip-float,
+.cinema:-webkit-full-screen .video-strip-float {
+  display: flex;
+}
+
+.video-strip-float .video-tile {
+  width: 220px;
+}
+
+.video-strip-float.dragging {
+  cursor: grabbing;
+}
+
+.video-strip-float:not(.dragging) {
+  transition: transform 0.18s ease;
 }
 
 .ctrl-btn.cam-on {
