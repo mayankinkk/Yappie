@@ -124,6 +124,9 @@ let presenceChannel: { track: (p: Record<string, unknown>) => Promise<string> } 
 let presenceJoinedAt = 0;
 let typingFlag = false;
 let typingHeartbeat: ReturnType<typeof setInterval> | null = null;
+let voiceFlag = false;
+let voiceAnnounced: Set<string> | null = null;
+let voiceSeeded = false;
 let selfProfile: Profile | null = null;
 let claimInFlight = false;
 
@@ -178,6 +181,7 @@ interface RoomState {
   deleteChatMessage(id: string): Promise<void>;
   reactToMessage(messageId: string, emoji: string): Promise<void>;
   setTyping(active: boolean): void;
+  setVoicePresence(inVoice: boolean): void;
   react(emoji: string): void;
   addToQueue(input: string): Promise<void>;
   removeFromQueue(id: string): void;
@@ -690,7 +694,14 @@ export const useRoom = create<RoomState>((set, get) => {
       const now = Date.now();
       for (const key of Object.keys(state)) {
         const p = state[key][0] as unknown as
-          | { name?: string; color?: number; joinedAt?: number; typingAt?: number; avatar?: string }
+          | {
+              name?: string;
+              color?: number;
+              joinedAt?: number;
+              typingAt?: number;
+              avatar?: string;
+              inVoice?: boolean;
+            }
           | undefined;
         if (!p) continue;
         if (
@@ -701,6 +712,21 @@ export const useRoom = create<RoomState>((set, get) => {
         ) {
           typingMap[key] = { name: p.name || "Guest", at: p.typingAt };
         }
+        // "X joined voice" — announced once per voice session so people who
+        // haven't joined voice still learn it's happening. The first sync
+        // seeds silently (they were already in voice when we arrived).
+        if (key !== profile.id) {
+          if (!voiceAnnounced) voiceAnnounced = new Set();
+          if (p.inVoice === true) {
+            if (!voiceSeeded) voiceAnnounced.add(key);
+            else if (!voiceAnnounced.has(key)) {
+              voiceAnnounced.add(key);
+              get().pushToast(`${p.name || "Someone"} joined voice`);
+            }
+          } else {
+            voiceAnnounced.delete(key);
+          }
+        }
         list.push({
           id: key,
           name: p.name || "Guest",
@@ -709,6 +735,7 @@ export const useRoom = create<RoomState>((set, get) => {
           avatar: typeof p.avatar === "string" ? p.avatar : "",
         });
       }
+      voiceSeeded = true;
       set({ typing: typingMap });
       const prev = get().participants;
       const prevIds = new Set(prev.map((x) => x.id));
@@ -758,6 +785,7 @@ export const useRoom = create<RoomState>((set, get) => {
             color: profile.color,
             avatar: profile.avatar || "",
             joinedAt: presenceJoinedAt,
+            inVoice: voiceFlag,
           });
           void get().loadMembers();
           void get().loadChat();
@@ -1010,6 +1038,9 @@ export const useRoom = create<RoomState>((set, get) => {
       if (typingHeartbeat) clearInterval(typingHeartbeat);
       typingHeartbeat = null;
       typingFlag = false;
+      voiceFlag = false;
+      voiceAnnounced = null;
+      voiceSeeded = false;
       presenceChannel = null;
       presenceJoinedAt = 0;
       channelUnsubscribe?.();
@@ -1231,6 +1262,7 @@ export const useRoom = create<RoomState>((set, get) => {
         avatar: selfProfile!.avatar || "",
         joinedAt: presenceJoinedAt,
         typingAt: active ? Date.now() : 0,
+        inVoice: voiceFlag,
       });
       void presenceChannel.track(payload());
       if (active) {
@@ -1243,6 +1275,7 @@ export const useRoom = create<RoomState>((set, get) => {
               avatar: selfProfile.avatar || "",
               joinedAt: presenceJoinedAt,
               typingAt: Date.now(),
+              inVoice: voiceFlag,
             });
           }, 2000);
         }
@@ -1250,6 +1283,26 @@ export const useRoom = create<RoomState>((set, get) => {
         clearInterval(typingHeartbeat);
         typingHeartbeat = null;
       }
+    },
+
+    /**
+     * Publishes "I'm in voice" through presence so peers who haven't joined
+     * voice still see "X joined voice" — the only signal that makes people
+     * realize voice is happening. One re-track per transition; the typing
+     * heartbeat also carries the flag so it isn't wiped between transitions.
+     */
+    setVoicePresence(inVoice) {
+      if (!selfProfile || !get().code || !presenceChannel) return;
+      if (voiceFlag === inVoice) return;
+      voiceFlag = inVoice;
+      void presenceChannel.track({
+        name: selfProfile.name,
+        color: selfProfile.color,
+        avatar: selfProfile.avatar || "",
+        joinedAt: presenceJoinedAt,
+        typingAt: typingFlag ? Date.now() : 0,
+        inVoice,
+      });
     },
 
     react(emoji) {

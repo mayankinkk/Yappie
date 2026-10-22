@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { useVoice } from "../voice/useVoice";
 import { isVoiceConfigured } from "../lib/supabase";
+import { useRoom } from "../stores/room";
 import { initials } from "../lib/ids";
 
 interface Props {
@@ -10,6 +12,14 @@ export default function VoiceBar({ roomCode }: Props) {
   const supported = isVoiceConfigured();
   const { joined, connecting, micOn, participants, error, join, leave, toggleMic } =
     useVoice(roomCode);
+  const setVoicePresence = useRoom((s) => s.setVoicePresence);
+
+  // Publish voice membership through presence so peers who haven't joined
+  // voice get the "X joined voice" toast.
+  useEffect(() => {
+    setVoicePresence(joined);
+    return () => setVoicePresence(false);
+  }, [joined, setVoicePresence]);
 
   if (!supported) return null;
 
