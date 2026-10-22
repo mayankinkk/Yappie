@@ -139,6 +139,12 @@ test.describe("voice", () => {
         // real rendered height so this can't regress silently.
         const box = await page.locator('.video-strip .video-tile[data-self="peer"]').boundingBox();
         expect(box?.height ?? 0).toBeGreaterThan(50);
+        // Product rule: tile video must stay un-mirrored (scaleX(-1) applied).
+        const tf = await page.evaluate(() => {
+          const el = document.querySelector(".video-strip video");
+          return el ? getComputedStyle(el).transform : "none";
+        });
+        expect(tf).not.toBe("none");
       }
     } finally {
       await aCtx.close();

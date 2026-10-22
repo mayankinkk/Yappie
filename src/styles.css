@@ -1467,6 +1467,9 @@ input[type="range"].volume:disabled {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  /* Displayed video reads mirrored (both self and remote) without this —
+     flip the pixels back so tiles show un-mirrored, as requested. */
+  transform: scaleX(-1);
 }
 
 .video-tile.speaking {
