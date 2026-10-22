@@ -10,6 +10,8 @@ import QueuePanel from "./QueuePanel";
 import WatchHistory from "./WatchHistory";
 import ReactionsBar from "./ReactionsBar";
 import VoiceBar from "./VoiceBar";
+import VideoStrip from "./VideoStrip";
+import { useVoice } from "../voice/useVoice";
 import { watchUrl } from "../lib/video-id";
 import { timeAgo } from "../lib/time";
 import { needsNativeYoutubeControls, toggleCinemaFullscreen } from "../lib/fullscreen";
@@ -51,6 +53,7 @@ function auditPhrase(e: AuditEntry): string {
 
 export default function Room() {
   const code = useRoom((s) => s.code)!;
+  const voice = useVoice(code);
   const videoId = useRoom((s) => s.videoId);
   const playing = useRoom((s) => s.playing);
   const connection = useRoom((s) => s.connection);
@@ -318,6 +321,8 @@ export default function Room() {
             />
           </div>
 
+          <VideoStrip voice={voice} />
+
           <div className="load-bar">
             <input
               className="field"
@@ -410,7 +415,7 @@ export default function Room() {
           </div>
 
           <ReactionsBar disabled={!videoId} />
-          <VoiceBar roomCode={code} />
+          <VoiceBar voice={voice} />
         </section>
 
         <aside className="sidebar">

@@ -1432,6 +1432,64 @@ input[type="range"].volume:disabled {
   font-size: 0.8rem;
 }
 
+.video-strip {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding-bottom: 2px;
+  overflow-x: auto;
+}
+
+.video-tile {
+  position: relative;
+  flex: 0 0 auto;
+  width: 168px;
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  background: #000;
+}
+
+.video-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.video-tile.speaking {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.35);
+}
+
+.video-name {
+  position: absolute;
+  left: 6px;
+  bottom: 4px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+
+.ctrl-btn.cam-on {
+  border-color: rgba(52, 211, 153, 0.5);
+  color: var(--green);
+}
+
+.ctrl-btn.cam-off {
+  border-color: var(--border-soft);
+  color: var(--muted);
+}
+
+@media (max-width: 520px) {
+  .video-tile {
+    width: 124px;
+  }
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;

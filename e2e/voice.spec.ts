@@ -108,6 +108,33 @@ test.describe("voice", () => {
           )
           .toBe(true);
       }
+
+      // --- Cameras: each side turns the webcam on (the same fake device
+      //     flag supplies a moving test pattern). With both on, each side
+      //     must render 2 tiles (self + remote) and the REMOTE tile must
+      //     actually decode frames. (Don't filter on `muted` here — LiveKit
+      //     force-mutes video-only streams inside attach() so autoplay
+      //     always works; camera tracks carry no audio anyway.)
+      for (const page of [a, b]) {
+        await page.getByRole("button", { name: "Turn camera on" }).click();
+      }
+      for (const page of [a, b]) {
+        await expect(page.locator(".video-strip .video-tile")).toHaveCount(2, {
+          timeout: 30_000,
+        });
+        await expect
+          .poll(
+            () =>
+              page.evaluate(() => {
+                const el = document.querySelector<HTMLVideoElement>(
+                  '.video-strip .video-tile[data-self="peer"] video',
+                );
+                return !!el && el.videoWidth > 0;
+              }),
+            { timeout: 30_000 },
+          )
+          .toBe(true);
+      }
     } finally {
       await aCtx.close();
       await bCtx.close();
