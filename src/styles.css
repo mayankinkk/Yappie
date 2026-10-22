@@ -1433,11 +1433,23 @@ input[type="range"].volume:disabled {
 }
 
 .video-strip {
+  /* The desktop stage is a fixed-height flex column — without flex:none the
+     strip absorbs all overflow by collapsing to a ~1px line. */
+  flex: none;
   display: flex;
   gap: 8px;
   margin: 10px 0 0;
   padding-bottom: 2px;
   overflow-x: auto;
+}
+
+/* When cameras are on, shrink the player's height cap by the strip's
+   footprint (~94px tiles + 10px gap) so the strip is fully visible without
+   scrolling. Desktop-only: ≤980px already undoes the cap (page scrolls). */
+@media (min-width: 981px) {
+  .stage:has(.video-strip) .player-wrap {
+    max-height: calc(100vh - 374px - 104px);
+  }
 }
 
 .video-tile {

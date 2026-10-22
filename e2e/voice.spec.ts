@@ -134,6 +134,11 @@ test.describe("voice", () => {
             { timeout: 30_000 },
           )
           .toBe(true);
+        // The desktop stage is a fixed-height flex column; a strip without
+        // flex:none collapses to ~1px while still decoding frames. Assert a
+        // real rendered height so this can't regress silently.
+        const box = await page.locator('.video-strip .video-tile[data-self="peer"]').boundingBox();
+        expect(box?.height ?? 0).toBeGreaterThan(50);
       }
     } finally {
       await aCtx.close();
