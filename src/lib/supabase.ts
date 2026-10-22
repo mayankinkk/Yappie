@@ -65,9 +65,13 @@ export async function fetchLiveKitToken(room: string, name: string): Promise<{ t
     const { data, error } = await supabase.functions.invoke("livekit-token", {
       body: { room, name },
     });
-    if (error || !data?.token) return null;
+    if (error || !data?.token) {
+      console.error("[voice] livekit-token failed", error ?? data);
+      return null;
+    }
     return { token: data.token as string, url };
-  } catch {
+  } catch (e) {
+    console.error("[voice] livekit-token threw", e);
     return null;
   }
 }

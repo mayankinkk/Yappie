@@ -176,13 +176,33 @@ export function useVoice(roomCode: string) {
           videos: [],
         }));
       });
-      await room.connect(creds.url, creds.token);
+      try {
+        await room.connect(creds.url, creds.token);
+      } catch (e) {
+        console.error("[voice] connect failed", e);
+        roomRef.current = null;
+        trackClassRef.current = null;
+        setState((s) => ({
+          ...s,
+          connecting: false,
+          error: "Couldn't reach the voice server",
+        }));
+        return;
+      }
       // Acquire + publish the mic immediately (one permission prompt at join,
       // Discord-style) but start MUTED — one click on Join must never open a
-      // hot mic to the room. Unmute is an explicit second action.
-      const micPub = await room.localParticipant.setMicrophoneEnabled(true);
-      await micPub?.mute();
-      micPubRef.current = micPub ?? null;
+      // hot mic to the room. Unmute is an explicit second action. A blocked
+      // mic (permission denied, device busy) is NOT fatal — the user still
+      // gets room audio and can retry from the mic toggle.
+      let micError: string | null = null;
+      try {
+        const micPub = await room.localParticipant.setMicrophoneEnabled(true);
+        await micPub?.mute();
+        micPubRef.current = micPub ?? null;
+      } catch (e) {
+        console.error("[voice] mic acquisition failed", e);
+        micError = "Mic blocked — allow microphone access for this site, then click the mic";
+      }
       // Attach any remote audio that arrived before the listeners were live
       // (rare race, cheap to cover).
       for (const p of room.remoteParticipants.values()) {
@@ -190,9 +210,16 @@ export function useVoice(roomCode: string) {
           pub.track?.attach();
         }
       }
-      setState((s) => ({ ...s, joined: true, connecting: false, micOn: false }));
+      setState((s) => ({
+        ...s,
+        joined: true,
+        connecting: false,
+        micOn: false,
+        error: micError,
+      }));
       refreshAll();
-    } catch {
+    } catch (e) {
+      console.error("[voice] join failed", e);
       roomRef.current = null;
       trackClassRef.current = null;
       setState((s) => ({ ...s, connecting: false, error: "Couldn't join voice" }));
@@ -222,15 +249,25 @@ export function useVoice(roomCode: string) {
     // Mic click is a user gesture — retry blocked remote-audio playback.
     room.startAudio().catch(() => {});
     const next = !state.micOn;
-    if (micPubRef.current) {
-      // Already published — flipping mute is instant, no device re-acquire.
-      if (next) await micPubRef.current.unmute();
-      else await micPubRef.current.mute();
-    } else {
-      await room.localParticipant.setMicrophoneEnabled(next);
+    try {
+      if (micPubRef.current) {
+        // Already published — flipping mute is instant, no device re-acquire.
+        if (next) await micPubRef.current.unmute();
+        else await micPubRef.current.mute();
+      } else {
+        const micPub = await room.localParticipant.setMicrophoneEnabled(next);
+        micPubRef.current = micPub ?? null;
+      }
+      setState((s) => ({ ...s, micOn: next, error: null }));
+      refreshAll();
+    } catch (e) {
+      console.error("[voice] mic toggle failed", e);
+      setState((s) => ({
+        ...s,
+        micOn: false,
+        error: "Mic blocked — allow microphone access for this site, then click the mic",
+      }));
     }
-    setState((s) => ({ ...s, micOn: next }));
-    refreshAll();
   }, [state.micOn, refreshAll]);
 
   const toggleCamera = useCallback(async () => {
