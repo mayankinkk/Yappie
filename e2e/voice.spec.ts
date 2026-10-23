@@ -157,6 +157,9 @@ test.describe("voice", () => {
       await a.evaluate(() => document.querySelector(".cinema")?.requestFullscreen());
       const floatStrip = a.locator(".video-strip-float");
       await expect(floatStrip).toBeVisible({ timeout: 10_000 });
+      // Fullscreen = peers only; the self-view lives on the stage strip.
+      await expect(a.locator('.video-strip-float .video-tile[data-self="self"]')).toHaveCount(0);
+      await expect(a.locator('.video-strip-float .video-tile[data-self="peer"]')).toHaveCount(1);
       const fsBox = await floatStrip.boundingBox();
       expect(fsBox?.height ?? 0).toBeGreaterThan(50);
       const vp = a.viewportSize()!;
@@ -178,10 +181,14 @@ test.describe("voice", () => {
         .poll(async () => (await floatStrip.boundingBox())?.x ?? 9999, { timeout: 5_000 })
         .toBeLessThan(30);
 
-      // Exit fullscreen → floating copy disappears, under-player strip stays.
+      // Exit fullscreen → floating copy disappears, stage strip shows all
+      // again (self + peer).
       await a.evaluate(() => document.exitFullscreen());
       await expect(floatStrip).toBeHidden();
       await expect(a.locator(".video-strip:not(.video-strip-float)")).toBeVisible();
+      await expect(
+        a.locator('.video-strip:not(.video-strip-float) .video-tile[data-self="self"]'),
+      ).toHaveCount(1);
     } finally {
       await aCtx.close();
       await bCtx.close();

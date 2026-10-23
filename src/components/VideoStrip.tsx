@@ -149,6 +149,10 @@ export default function VideoStrip({ voice, floating = false }: Props) {
   };
 
   if (voice.videos.length === 0) return null;
+  // Fullscreen overlay shows only peers — your own feed already lives in
+  // the corner of every other viewer's screen; the stage strip keeps all.
+  const shown = floating ? voice.videos.filter((v) => !v.isLocal) : voice.videos;
+  if (shown.length === 0) return null;
   const speakingIds = new Set(voice.participants.filter((p) => p.speaking).map((p) => p.id));
 
   const style: CSSProperties | undefined =
@@ -167,7 +171,7 @@ export default function VideoStrip({ voice, floating = false }: Props) {
       onPointerUp={floating ? onPointerUp : undefined}
       onPointerCancel={floating ? onPointerUp : undefined}
     >
-      {voice.videos.map((v) => (
+      {shown.map((v) => (
         <VideoTile key={v.id} video={v} speaking={speakingIds.has(v.id)} />
       ))}
     </div>
