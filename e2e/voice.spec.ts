@@ -162,6 +162,13 @@ test.describe("voice", () => {
       const vp = a.viewportSize()!;
       expect(fsBox!.x).toBeGreaterThan(vp.width / 2); // default: right half
 
+      // The player must FILL the fullscreen height: the desktop strip-budget
+      // max-height has the same specificity as the fullscreen override, so
+      // source order decides — a black void under the controls means the
+      // cap leaked into fullscreen again.
+      const pw = await a.locator(".player-wrap").boundingBox();
+      expect(pw?.height ?? 0).toBeGreaterThan(vp.height * 0.7);
+
       // Drag toward the left → release snaps it flush to the left edge.
       await a.mouse.move(fsBox!.x + fsBox!.width / 2, fsBox!.y + fsBox!.height / 2);
       await a.mouse.down();

@@ -1454,6 +1454,14 @@ input[type="range"].volume:disabled {
   }
 }
 
+/* Fullscreen must out-weigh the strip budget above: same specificity
+   (0,3,0), so source order decides — without this re-override the player
+   stays height-capped inside fullscreen and a black void fills the rest. */
+.cinema:fullscreen .player-wrap,
+.cinema:-webkit-full-screen .player-wrap {
+  max-height: none;
+}
+
 .video-tile {
   position: relative;
   flex: 0 0 auto;
