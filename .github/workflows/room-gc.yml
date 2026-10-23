@@ -9,7 +9,7 @@ jobs:
   prune:
     runs-on: ubuntu-latest
     steps:
-      - name: Prune rooms idle for 30 days
+      - name: Prune rooms idle for 7 days
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -22,4 +22,4 @@ jobs:
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
-            -d '{"p_idle_days": 30}'
+            -d '{"p_idle_days": 7}'
