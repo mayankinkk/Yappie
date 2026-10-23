@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, devices, type Page } from "@playwright/test";
 import { existsSync, readFileSync } from "node:fs";
 
 /**
@@ -192,6 +192,72 @@ test.describe("voice", () => {
     } finally {
       await aCtx.close();
       await bCtx.close();
+    }
+  });
+
+  // Android path lock: needsNativeYoutubeControls() must gate on the
+  // Fullscreen API, not screen.orientation.lock — coarse-pointer devices
+  // WITH requestFullscreen keep our custom controls, and therefore our
+  // fullscreen with the floating peer-camera strip. (Gating on lock pushed
+  // lock-less Android browsers onto YouTube's in-iframe fullscreen, where
+  // the float can never appear.)
+  test("android-like: custom controls and floating peer camera in fullscreen", async ({
+    browser,
+  }) => {
+    const mCtx = await browser.newContext({ ...devices["Pixel 7"] });
+    const dCtx = await browser.newContext();
+    const m = await mCtx.newPage();
+    const d = await dCtx.newPage();
+
+    try {
+      await m.goto("/");
+      // Sanity: the emulation must present a coarse pointer or this test
+      // would silently prove the desktop path instead of the Android one.
+      expect(
+        await m.evaluate(() => window.matchMedia?.("(pointer: coarse)").matches ?? false),
+      ).toBe(true);
+
+      await enterName(m, "DroidMia");
+      await m.getByRole("button", { name: "Create a room" }).click();
+      await expect(m.locator(".room-chip strong")).toBeVisible({ timeout: 30_000 });
+      const code = (await m.locator(".room-chip strong").innerText()).trim();
+
+      await d.goto("/");
+      await enterName(d, "DeskPete");
+      await d.fill("#code-input", code);
+      await d.getByRole("button", { name: "Join", exact: true }).click();
+      await expect(d.locator(".room-chip strong")).toHaveText(code, { timeout: 30_000 });
+
+      // Custom controls, not the YouTube-native handover.
+      await expect(m.locator(".cinema")).not.toHaveClass(/yt-native/);
+
+      for (const page of [m, d]) {
+        await page.getByRole("button", { name: /Join voice/ }).click();
+        await page.getByRole("button", { name: "Turn camera on" }).click();
+      }
+      await expect(m.locator('.video-strip:not(.video-strip-float) .video-tile')).toHaveCount(2, {
+        timeout: 30_000,
+      });
+
+      // Enter fullscreen the same way the app does, then the floating strip
+      // must appear showing peers only — the Android equivalent of the
+      // desktop fullscreen block above.
+      await m.evaluate(() => document.querySelector(".cinema")?.requestFullscreen());
+      const float = m.locator(".video-strip-float");
+      await expect(float).toBeVisible({ timeout: 10_000 });
+      await expect(m.locator('.video-strip-float .video-tile[data-self="self"]')).toHaveCount(0);
+      await expect(m.locator('.video-strip-float .video-tile[data-self="peer"]')).toHaveCount(1);
+      const box = await float.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThan(40);
+
+      await m.evaluate(() => document.exitFullscreen());
+      await expect(float).toBeHidden();
+      await expect(
+        m.locator('.video-strip:not(.video-strip-float) .video-tile[data-self="self"]'),
+      ).toHaveCount(1);
+    } finally {
+      await mCtx.close();
+      await dCtx.close();
     }
   });
 });

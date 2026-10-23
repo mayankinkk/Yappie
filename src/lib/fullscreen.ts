@@ -19,19 +19,23 @@ export function activeFullscreenElement(): Element | null {
 }
 
 /**
- * Touch devices that can't lock orientation (iOS/iPadOS Safari). There, an
- * element fullscreen of our portrait-shaped .cinema never rotates, and
- * screen.orientation.lock doesn't exist — but YouTube's *native* fullscreen
- * button opens the native video player, which does go landscape. So on those
- * devices we hand playback chrome over to YouTube (controls: 1, no hotzone,
- * no custom bar); everything else keeps the custom controls.
+ * Touch devices with no element-Fullscreen API (iPhone Safari). There our
+ * .cinema can never go fullscreen, so playback chrome is handed over to
+ * YouTube (controls: 1, no hotzone, no custom bar): its fullscreen button
+ * lives inside the iframe we cannot overlay, and it's the only path to a
+ * rotating player. The gate is the Fullscreen API itself — NOT
+ * screen.orientation.lock: Firefox Android lacks lock yet element fullscreen
+ * works fine, and gating on lock used to push every such Android browser
+ * onto YouTube's controls, killing our fullscreen (and the floating camera
+ * strip) there. Every Android browser has requestFullscreen, so it keeps the
+ * custom controls and both features work.
  */
 export function needsNativeYoutubeControls(): boolean {
-  if (typeof window === "undefined") return false;
+  if (typeof window === "undefined" || typeof document === "undefined") return false;
   const coarse = window.matchMedia?.("(pointer: coarse)").matches ?? false;
-  const canLock =
-    typeof screen !== "undefined" && !!screen.orientation && "lock" in screen.orientation;
-  return coarse && !canLock;
+  const el = document.documentElement as FullscreenCapable;
+  const canFullscreen = !!(el.requestFullscreen || el.webkitRequestFullscreen);
+  return coarse && !canFullscreen;
 }
 
 function lockLandscape(): void {
