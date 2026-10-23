@@ -645,6 +645,47 @@ a {
   cursor: pointer;
 }
 
+/* Present mode: covers the player area with the screen-share stream
+   (local preview or the remote presenter's). Inside .player-wrap, so it
+   stays full-bleed in fullscreen; z above hotzone/reactions/up-next. */
+.screenshare {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  background: #000;
+}
+
+.screenshare video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.screenshare-head {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  background: rgba(12, 10, 9, 0.85);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+}
+
+.screenshare-who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* End-of-video countdown to the next queued video (all clients), with a
    host-only "Play now". */
 .up-next {
@@ -1545,6 +1586,16 @@ input[type="range"].volume:disabled {
 }
 
 .ctrl-btn.cam-off {
+  border-color: var(--border-soft);
+  color: var(--muted);
+}
+
+.ctrl-btn.share-on {
+  border-color: rgba(52, 211, 153, 0.5);
+  color: var(--green);
+}
+
+.ctrl-btn.share-off {
   border-color: var(--border-soft);
   color: var(--muted);
 }

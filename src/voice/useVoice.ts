@@ -31,9 +31,13 @@ interface VoiceState {
   connecting: boolean;
   micOn: boolean;
   cameraOn: boolean;
+  /** Local screen-share active (present mode). */
+  sharing: boolean;
   error: string | null;
   participants: VoiceParticipant[];
   videos: VideoParticipant[];
+  /** Screen-share tracks: local preview + remote presenters, ScreenShare source. */
+  screens: VideoParticipant[];
 }
 
 export type Voice = ReturnType<typeof useVoice>;
@@ -46,16 +50,18 @@ export function useVoice(roomCode: string) {
     connecting: false,
     micOn: false,
     cameraOn: false,
+    sharing: false,
     error: null,
     participants: [],
     videos: [],
+    screens: [],
   });
   const roomRef = useRef<Room | null>(null);
   const micPubRef = useRef<LocalTrackPublication | null>(null);
   // livekit-client is imported dynamically to keep it out of the app chunk;
   // stash Track.Source here once joined so refreshVideos can look up camera
-  // publications without a second import.
-  const trackClassRef = useRef<{ Source: { Camera: Track.Source } } | null>(null);
+  // and screen-share publications without a second import.
+  const trackClassRef = useRef<{ Source: { Camera: Track.Source; ScreenShare: Track.Source } } | null>(null);
 
   const refreshParticipants = useCallback(() => {
     const room = roomRef.current;
@@ -88,13 +94,24 @@ export function useVoice(roomCode: string) {
     const Source = trackClassRef.current?.Source;
     if (!room || !Source) return;
     const list: VideoParticipant[] = [];
-    const localPub = room.localParticipant.getTrackPublication(Source.Camera);
+    const screens: VideoParticipant[] = [];
+    const local = room.localParticipant;
+    const localPub = local.getTrackPublication(Source.Camera);
     if (localPub?.track) {
       list.push({
-        id: room.localParticipant.sid || "local",
+        id: local.sid || "local",
         name: profile?.name || "You",
         isLocal: true,
         track: localPub.track as Track,
+      });
+    }
+    const localScreen = local.getTrackPublication(Source.ScreenShare);
+    if (localScreen?.track) {
+      screens.push({
+        id: local.sid || "local",
+        name: profile?.name || "You",
+        isLocal: true,
+        track: localScreen.track as Track,
       });
     }
     for (const p of room.remoteParticipants.values() as Iterable<RemoteParticipant>) {
@@ -107,14 +124,24 @@ export function useVoice(roomCode: string) {
           track: pub.track as Track,
         });
       }
+      const screen = p.getTrackPublication(Source.ScreenShare);
+      if (screen?.track) {
+        screens.push({
+          id: p.sid,
+          name: p.name || "Guest",
+          isLocal: false,
+          track: screen.track as Track,
+        });
+      }
     }
     // Track objects are stable across refreshes — skip the update (and a
     // re-render) when nothing actually changed.
+    const sameList = (a: VideoParticipant[], b: VideoParticipant[]) =>
+      a.length === b.length && a.every((v, i) => v.id === b[i]?.id && v.track === b[i]?.track);
     setState((s) =>
-      s.videos.length === list.length &&
-      list.every((v, i) => v.id === s.videos[i]?.id && v.track === s.videos[i]?.track)
+      sameList(s.videos, list) && sameList(s.screens, screens)
         ? s
-        : { ...s, videos: list },
+        : { ...s, videos: list, screens },
     );
   }, [profile?.name]);
 
@@ -173,8 +200,10 @@ export function useVoice(roomCode: string) {
           joined: false,
           micOn: false,
           cameraOn: false,
+          sharing: false,
           participants: [],
           videos: [],
+          screens: [],
         }));
       });
       try {
@@ -238,8 +267,10 @@ export function useVoice(roomCode: string) {
       joined: false,
       micOn: false,
       cameraOn: false,
+      sharing: false,
       participants: [],
       videos: [],
+      screens: [],
       error: null,
     }));
   }, []);
@@ -287,6 +318,24 @@ export function useVoice(roomCode: string) {
     }
     refreshAll();
   }, [state.cameraOn, refreshAll]);
+
+  const toggleScreenShare = useCallback(async () => {
+    const room = roomRef.current;
+    if (!room) return;
+    const next = !state.sharing;
+    try {
+      // Present mode: screen-share publishes as Track.Source.ScreenShare;
+      // ScreenShare.tsx (local preview + remote viewers) renders it over
+      // the player. Video-only — room voice keeps its own audio path.
+      await room.localParticipant.setScreenShareEnabled(next);
+      setState((s) => ({ ...s, sharing: next }));
+    } catch (e) {
+      // Cancelled picker or unsupported device — stay in watch mode.
+      console.error("[voice] screenshare toggle failed", e);
+      setState((s) => ({ ...s, sharing: false }));
+    }
+    refreshAll();
+  }, [state.sharing, refreshAll]);
 
   useEffect(() => {
     return () => {
@@ -369,5 +418,5 @@ export function useVoice(roomCode: string) {
     };
   }, [state.joined, leave]);
 
-  return { ...state, join, leave, toggleMic, toggleCamera };
+  return { ...state, join, leave, toggleMic, toggleCamera, toggleScreenShare };
 }

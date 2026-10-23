@@ -11,6 +11,7 @@ import WatchHistory from "./WatchHistory";
 import ReactionsBar from "./ReactionsBar";
 import VoiceBar from "./VoiceBar";
 import VideoStrip from "./VideoStrip";
+import ScreenShare from "./ScreenShare";
 import { useVoice } from "../voice/useVoice";
 import { watchUrl } from "../lib/video-id";
 import { timeAgo } from "../lib/time";
@@ -311,6 +312,7 @@ export default function Room() {
                 )}
               </div>
             )}
+            <ScreenShare voice={voice} />
             </div>
 
             <VideoStrip voice={voice} floating />
