@@ -194,7 +194,7 @@ interface RoomState {
   setSlowMode(seconds: number): Promise<void>;
   requestControl(): void;
   markChatRead(): void;
-  pushToast(text: string, kind?: ToastItem["kind"]): void;
+  pushToast(text: string, kind?: ToastItem["kind"], opts?: Pick<ToastItem, "actions" | "ttlMs">): string;
   dismissToast(id: string): void;
   getProfile(): Profile | null;
 }
@@ -1498,17 +1498,27 @@ export const useRoom = create<RoomState>((set, get) => {
       if (get().unread > 0) set({ unread: 0 });
     },
 
-    pushToast(text, kind = "info") {
+    pushToast(text, kind = "info", opts) {
       // Guards against toast floods (remote actions, rate-limit notices, ...):
       // same message within 3s is deduped, and globally at most ~1 per 350ms.
       const now = Date.now();
       const toasts = get().toasts;
       const last = toasts[toasts.length - 1];
-      if (last && last.text === text && now - (last.ts || 0) < 3000) return;
-      if (!toastGap.allow("toast")) return;
-      const toast: ToastItem = { id: randomId(), text, kind, ts: now };
+      if (last && last.text === text && now - (last.ts || 0) < 3000) return last.id;
+      if (!toastGap.allow("toast")) return "";
+      const toast: ToastItem = {
+        id: randomId(),
+        text,
+        kind,
+        ts: now,
+        actions: opts?.actions,
+        ttlMs: opts?.ttlMs,
+      };
       set({ toasts: [...toasts.slice(-3), toast] });
-      setTimeout(() => get().dismissToast(toast.id), 3200);
+      // Action toasts usually carry their own bounded ttlMs (a countdown
+      // the caller also drives); plain toasts keep the default pop-in/out.
+      setTimeout(() => get().dismissToast(toast.id), opts?.ttlMs ?? 3200);
+      return toast.id;
     },
 
     dismissToast(id) {

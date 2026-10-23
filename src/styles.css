@@ -2298,6 +2298,27 @@ input[type="range"].volume:disabled {
   color: #fecaca;
 }
 
+/* Action toasts (idle prompt): message + explicit buttons, not a
+   click-anywhere pill. */
+.toast-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: auto;
+  text-align: left;
+}
+
+.toast-actions .toast-text {
+  min-width: 0;
+}
+
+.toast-actions .toast-btns {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
 @keyframes toast-in {
   from {
     opacity: 0;

@@ -260,4 +260,59 @@ test.describe("voice", () => {
       await dCtx.close();
     }
   });
+
+  // Idle auto-leave: a hidden page for IDLE ms → Stay/Leave-now prompt →
+  // GRACE ms later the seat drops (LiveKit bills muted seats too). The
+  // window.__YAPPIE_VOICE_* overrides shorten both timers (see useVoice).
+  test("idle auto-leave: hidden tab prompts, then drops the voice seat", async ({ browser }) => {
+    const ctx = await browser.newContext();
+    await ctx.addInitScript(() => {
+      const w = window as unknown as { __YAPPIE_VOICE_IDLE_MS?: number; __YAPPIE_VOICE_GRACE_MS?: number };
+      w.__YAPPIE_VOICE_IDLE_MS = 800;
+      w.__YAPPIE_VOICE_GRACE_MS = 1500;
+    });
+    const page = await ctx.newPage();
+
+    const setVisibility = (state: "hidden" | "visible") =>
+      page.evaluate((s) => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, get: () => s });
+        document.dispatchEvent(new Event("visibilitychange"));
+      }, state);
+
+    try {
+      await page.goto("/");
+      await enterName(page, "IdleIvan");
+      await page.getByRole("button", { name: "Create a room" }).click();
+      await expect(page.locator(".room-chip strong")).toBeVisible({ timeout: 30_000 });
+      await page.getByRole("button", { name: /Join voice/ }).click();
+      const joined = page.getByRole("button", { name: /Leave voice/ });
+      await expect(joined).toBeVisible({ timeout: 15_000 });
+
+      // (1) Brief tab-away cancels silently — no prompt, still connected.
+      await setVisibility("hidden");
+      await page.waitForTimeout(300);
+      await setVisibility("visible");
+      await page.waitForTimeout(1000); // past idle — would have fired
+      await expect(page.locator(".toast")).toHaveCount(0);
+      await expect(joined).toBeVisible();
+
+      // (2) Away for real → prompt appears; "Stay connected" holds past grace.
+      await setVisibility("hidden");
+      const prompt = page.locator(".toast-actions");
+      await expect(prompt).toBeVisible({ timeout: 3_000 });
+      await expect(prompt).toContainText("leaving voice");
+      await prompt.getByRole("button", { name: "Stay connected" }).click();
+      await page.waitForTimeout(1800); // past grace — stay must hold
+      await expect(joined).toBeVisible();
+      await setVisibility("visible");
+
+      // (3) Away with no response → auto-leave; the Join button is the
+      //     one-tap rejoin.
+      await setVisibility("hidden");
+      await expect(page.locator(".toast-actions")).toBeVisible({ timeout: 3_000 });
+      await expect(page.getByRole("button", { name: /Join voice/ })).toBeVisible({ timeout: 5_000 });
+    } finally {
+      await ctx.close();
+    }
+  });
 });

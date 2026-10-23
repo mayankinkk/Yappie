@@ -69,11 +69,20 @@ export interface FloatingReaction extends ReactionEvent {
   lane: number;
 }
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface ToastItem {
   id: string;
   text: string;
   kind: "info" | "error";
   ts?: number;
+  /** When present, the toast renders as a message with buttons instead of
+   *  a click-to-dismiss pill. Bounded by ttlMs (default 3200). */
+  actions?: ToastAction[];
+  ttlMs?: number;
 }
 
 export interface PlaybackTarget {

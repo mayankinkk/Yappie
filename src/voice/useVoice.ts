@@ -7,6 +7,7 @@ import type {
 } from "livekit-client";
 import { fetchLiveKitToken, isVoiceConfigured } from "../lib/supabase";
 import { useSession } from "../stores/session";
+import { useRoom } from "../stores/room";
 
 export interface VoiceParticipant {
   id: string;
@@ -293,6 +294,80 @@ export function useVoice(roomCode: string) {
       roomRef.current = null;
     };
   }, []);
+
+  // ---- Idle auto-leave ---------------------------------------------------
+  // Everyone stays muted for a whole movie, so "no speech" is a terrible
+  // abandonment signal — it would kick the room mid-film. The page going
+  // hidden for 5 straight minutes is the only trustworthy "nobody's here"
+  // signal, and every idle minute still bills a LiveKit seat (mute state
+  // doesn't matter). Away → warn once with Stay / Leave-now, then drop.
+  // (The window overrides are the e2e seam: tests shorten both timers.)
+  useEffect(() => {
+    if (!state.joined) return;
+    const win = window as Window & {
+      __YAPPIE_VOICE_IDLE_MS?: number;
+      __YAPPIE_VOICE_GRACE_MS?: number;
+    };
+    const idleMs = win.__YAPPIE_VOICE_IDLE_MS ?? 5 * 60_000;
+    const graceMs = win.__YAPPIE_VOICE_GRACE_MS ?? 60_000;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
+    let toastId = "";
+
+    const clearIdle = () => {
+      if (idleTimer !== undefined) {
+        clearTimeout(idleTimer);
+        idleTimer = undefined;
+      }
+    };
+    const clearGrace = () => {
+      if (graceTimer !== undefined) {
+        clearTimeout(graceTimer);
+        graceTimer = undefined;
+      }
+    };
+
+    const startIdle = () => {
+      if (idleTimer !== undefined || graceTimer !== undefined) return;
+      idleTimer = setTimeout(() => {
+        idleTimer = undefined;
+        const mins = Math.max(1, Math.round(idleMs / 60_000));
+        const secs = Math.max(1, Math.round(graceMs / 1000));
+        toastId = useRoom.getState().pushToast(`Away ${mins} min — leaving voice in ${secs}s`, "info", {
+          ttlMs: graceMs,
+          actions: [
+            { label: "Stay connected", onClick: () => { clearIdle(); clearGrace(); } },
+            { label: "Leave now", onClick: leave },
+          ],
+        });
+        // The toast's own ttlMs dismisses it exactly when this fires.
+        graceTimer = setTimeout(() => {
+          graceTimer = undefined;
+          leave();
+        }, graceMs);
+      }, idleMs);
+    };
+
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        startIdle();
+      } else if (idleTimer !== undefined) {
+        // Back before the warning fired → never left; cancel silently.
+        // Back DURING the grace window the countdown keeps running, so the
+        // returner sees the explicit Stay / Leave-now prompt in time.
+        clearIdle();
+      }
+    };
+
+    if (document.visibilityState === "hidden") startIdle();
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      clearIdle();
+      clearGrace();
+      if (toastId) useRoom.getState().dismissToast(toastId);
+    };
+  }, [state.joined, leave]);
 
   return { ...state, join, leave, toggleMic, toggleCamera };
 }
