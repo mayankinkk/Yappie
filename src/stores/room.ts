@@ -1196,7 +1196,9 @@ export const useRoom = create<RoomState>((set, get) => {
         })
         .then(({ error }: { error: { message?: string } | null }) => {
           if (!error) {
-            pushMessage(set, get, msg, false);
+            // The realtime INSERT can beat this HTTP response — only echo if
+            // the websocket path hasn't already delivered the same row.
+            if (!get().messages.some((m) => m.id === msg.id)) pushMessage(set, get, msg, false);
             return;
           }
           if (String(error.message || "").includes("chat_rate_limited")) {
