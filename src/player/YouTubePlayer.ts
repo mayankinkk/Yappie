@@ -51,6 +51,7 @@ export class YouTubePlayer implements PlayerAdapter {
   private volume = 100;
   private captions = captionsEnabled();
   private suppressLoop: number | null = null;
+  private suppressStop: number | null = null;
   private destroyed = false;
 
   constructor(host: HTMLElement) {
@@ -76,13 +77,17 @@ export class YouTubePlayer implements PlayerAdapter {
     this.stopSuppressLoop();
     this.suppressCaptions();
     this.suppressLoop = window.setInterval(() => this.suppressCaptions(), 2000);
-    window.setTimeout(() => this.stopSuppressLoop(), 20000);
+    this.suppressStop = window.setTimeout(() => this.stopSuppressLoop(), 20000);
   }
 
   private stopSuppressLoop(): void {
     if (this.suppressLoop !== null) {
       window.clearInterval(this.suppressLoop);
       this.suppressLoop = null;
+    }
+    if (this.suppressStop !== null) {
+      window.clearTimeout(this.suppressStop);
+      this.suppressStop = null;
     }
   }
 
