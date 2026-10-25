@@ -1131,7 +1131,7 @@ export const useRoom = create<RoomState>((set, get) => {
         return;
       }
       const s = get();
-      const isController = selfProfile?.id === s.hostId || s.guestsCanControl;
+      const isController = canControlNow();
       if (!isController) {
         await get().addToQueue(id);
         get().pushToast("Only the host plays videos — added to the queue instead");
@@ -1547,7 +1547,9 @@ function addFloating(
 export function canControlNow(): boolean {
   const s = useRoom.getState();
   if (!selfProfile) return false;
-  return s.hostId === selfProfile.id || s.guestsCanControl;
+  return (
+    s.hostId === selfProfile.id || s.guestsCanControl || s.grantedTo.includes(selfProfile.id)
+  );
 }
 
 export function isHostNow(): boolean {
