@@ -539,6 +539,7 @@ export const useRoom = create<RoomState>((set, get) => {
         seek: (t) => playerAdapter?.seek(t),
         getTime: () => playerAdapter?.getTime() ?? 0,
         isPlaying: () => playerAdapter?.isPlaying() ?? false,
+        getState: () => playerAdapter?.getState?.() ?? null,
         setMuted: (m) => playerAdapter?.setMuted(m),
         setVolume: (v) => playerAdapter?.setVolume(v),
         setCaptionsEnabled: (on) => playerAdapter?.setCaptionsEnabled(on),

@@ -11,6 +11,8 @@ import type { ControlPayload, PlayerAdapter, PlayerLocalEvent, RoomSnapshot, Tra
 class FakePlayer implements PlayerAdapter {
   time = 0;
   playing = false;
+  /** YT-style raw state override; null = derive from `playing`. */
+  state: number | null = null;
   loaded: { videoId: string; time: number; autoplay: boolean } | null = null;
   private readyState = true;
   private cb: ((e: PlayerLocalEvent) => void) | null = null;
@@ -23,6 +25,7 @@ class FakePlayer implements PlayerAdapter {
   seek(t: number) { this.time = t; }
   getTime() { return this.time; }
   isPlaying() { return this.playing; }
+  getState() { return this.state !== null ? this.state : (this.playing ? 1 : 2); }
   setMuted() {}
   setVolume() {}
   setCaptionsEnabled() {}
@@ -434,6 +437,40 @@ describe("SyncEngine drift correction", () => {
     engine.applyLoadedState({ videoId: "abcdefghijk", time: 100, playing: false });
     engine.tick(Date.now() + 10_000);
     expect(player.getTime()).toBeCloseTo(100);
+  });
+});
+
+describe("SyncEngine blocked-autoplay settle", () => {
+  it("settles the playing intent to paused when the player stays cued", () => {
+    const onLocalState = vi.fn();
+    const { engine, player, setVideoId } = makeEngine({ onLocalState });
+    setVideoId("abcdefghijk");
+    player.time = 42;
+    player.playing = false;
+    player.state = 5; // cued — autoplay was blocked
+    engine.applyLoadedState({ videoId: "abcdefghijk", time: 42, playing: true });
+    const t0 = Date.now();
+    engine.tick(t0);
+    expect(onLocalState).not.toHaveBeenCalledWith(expect.objectContaining({ playing: false }));
+    engine.tick(t0 + 3500);
+    expect(onLocalState).toHaveBeenCalledWith({ videoId: "abcdefghijk", time: 42, playing: false });
+    expect(engine.getLocalRef().playing).toBe(false);
+  });
+
+  it("keeps the playing intent through a buffer (state 3)", () => {
+    const onLocalState = vi.fn();
+    const { engine, player, setVideoId } = makeEngine({ onLocalState });
+    setVideoId("abcdefghijk");
+    player.time = 42;
+    player.playing = false;
+    player.state = 3; // buffering
+    engine.applyLoadedState({ videoId: "abcdefghijk", time: 42, playing: true });
+    const t0 = Date.now();
+    engine.tick(t0);
+    engine.tick(t0 + 3500);
+    engine.tick(t0 + 7000);
+    expect(engine.getLocalRef().playing).toBe(true);
+    expect(onLocalState).not.toHaveBeenCalledWith(expect.objectContaining({ playing: false }));
   });
 });
 

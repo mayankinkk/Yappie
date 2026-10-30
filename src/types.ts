@@ -104,6 +104,12 @@ export interface PlayerAdapter {
   seek(time: number): void;
   getTime(): number;
   isPlaying(): boolean;
+  /**
+   * Raw player state (YouTube: -1 unstarted, 0 ended, 1 playing, 2 paused,
+   * 3 buffering, 5 cued) or null while unbound. Lets the sync engine tell a
+   * blocked autoplay (cued/paused) apart from a transient buffer.
+   */
+  getState?(): number | null;
   setMuted(muted: boolean): void;
   setVolume(volume: number): void;
   setCaptionsEnabled(on: boolean): void;

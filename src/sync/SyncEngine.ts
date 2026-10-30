@@ -67,6 +67,8 @@ export class SyncEngine {
   private lastAppliedFrom: Record<string, number> = {};
   private applying = false;
   private applyTimer: ReturnType<typeof setTimeout> | null = null;
+  /** When the player last disagreed with our playing intent (see tick()). */
+  private blockSince = 0;
   /** Latest remote payload received before the player was ready (kept so a
    *  refresh's sync answer isn't lost to the iframe warm-up race). */
   private pendingRemote: {
@@ -417,8 +419,33 @@ export class SyncEngine {
         : this.localRef.time;
       this.lastDrift = Math.abs(this.opts.player.getTime() - expected);
     }
-    if (!this.localRef.playing) return;
-    if (!this.opts.player.isPlaying()) return;
+    if (!this.localRef.playing) {
+      this.blockSince = 0;
+      return;
+    }
+    if (!this.opts.player.isPlaying()) {
+      // BUFFERING (YT state 3) is a transient load that resumes on its own;
+      // any other non-playing state while our intent says "playing" means
+      // the start was blocked (autoplay without a gesture) or playback
+      // stopped without an event. Sustained for ~3s, settle the intent to
+      // paused so the pill, drift, and sync answers reflect the real player
+      // instead of a phantom position racing ahead of a static frame.
+      if ((this.opts.player.getState?.() ?? null) === 3) {
+        this.blockSince = 0;
+        return;
+      }
+      if (!this.blockSince) {
+        this.blockSince = now;
+        return;
+      }
+      if (now - this.blockSince < 3000) return;
+      this.blockSince = 0;
+      const time = this.opts.player.getTime();
+      this.localRef = { ...this.localRef, time, playing: false, sentAt: now };
+      this.opts.onLocalState({ videoId: this.localRef.videoId, time, playing: false });
+      return;
+    }
+    this.blockSince = 0;
     const actual = this.opts.player.getTime();
     const correction = computeDriftCorrection(this.localRef, actual, now);
     if (correction === null) return;
