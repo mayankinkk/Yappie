@@ -34,6 +34,7 @@ import {
   type ChatRow,
   type JoinedRoom,
   type MembershipRow,
+  type PlaybackPosition,
   type QueueRow,
   type RoomRow,
   type WatchedEntry,
@@ -129,6 +130,14 @@ let voiceAnnounced: Set<string> | null = null;
 let voiceSeeded = false;
 let selfProfile: Profile | null = null;
 let claimInFlight = false;
+/** Last position the host mirrored to rooms.playback (seeded on join). */
+let resumeRef: PlaybackPosition | null = null;
+let playbackPersistTimer: ReturnType<typeof setInterval> | null = null;
+let lastPlaybackPersistAt = 0;
+
+/** Min gap between periodic host playback writes (explicit actions bypass). */
+const PLAYBACK_PERSIST_MIN_GAP = 8_000;
+const PLAYBACK_PERSIST_MS = 10_000;
 
 /** How long a peer's "typing" state stays visible without a heartbeat refresh. */
 const TYPING_TTL = 4_000;
@@ -158,6 +167,8 @@ interface RoomState {
   typing: Record<string, { name: string; at: number }>;
   upNext: { item: QueueItem; endsAt: number } | null;
   audit: AuditEntry[];
+  /** Last chat text whose insert failed — restored into the composer. */
+  failedChat: { text: string; nonce: number } | null;
 
   createRoom(profile: Profile, password?: string | null): Promise<void>;
   joinRoom(code: string, profile: Profile, password?: string | null): Promise<void>;
@@ -194,6 +205,7 @@ interface RoomState {
   setSlowMode(seconds: number): Promise<void>;
   requestControl(): void;
   markChatRead(): void;
+  dismissFailedChat(): void;
   pushToast(text: string, kind?: ToastItem["kind"], opts?: Pick<ToastItem, "actions" | "ttlMs">): string;
   dismissToast(id: string): void;
   getProfile(): Profile | null;
@@ -237,7 +249,10 @@ function toQueueItem(row: QueueRow): QueueItem {
 // Best-effort membership close when the tab goes away (crash path is claim_host()).
 function handlePageHide(): void {
   const code = useRoom.getState().code;
-  if (code) void leaveRoomRpc(code);
+  if (code) {
+    flushPlaybackNow();
+    void leaveRoomRpc(code);
+  }
 }
 if (typeof window !== "undefined") window.addEventListener("pagehide", handlePageHide);
 
@@ -287,7 +302,10 @@ export const useRoom = create<RoomState>((set, get) => {
       if (playerAdapter?.isPlaying()) return;
       if (playerAdapter?.ready()) {
         localLoadedVideoId = videoId;
-        playerAdapter.load(videoId, 0, false);
+        const start = resumeStartSeconds(videoId);
+        const resumePlaying = !!resumeRef && resumeRef.videoId === videoId && resumeRef.playing;
+        playerAdapter.load(videoId, start, resumePlaying);
+        engine?.applyLoadedState({ videoId, time: start, playing: resumePlaying });
         return;
       }
       if (++tries < 20) selfSyncTimer = setTimeout(attempt, 500);
@@ -348,6 +366,7 @@ export const useRoom = create<RoomState>((set, get) => {
       guests_can_control: s.guestsCanControl,
       locked: s.roomLocked,
       video_id: s.videoId,
+      playback: currentPlayback(),
     });
     if (!ok) {
       const supabase = getSupabase();
@@ -449,6 +468,7 @@ export const useRoom = create<RoomState>((set, get) => {
     engine.localLoad(next.videoId, true);
     recordWatched(next.videoId, next.title);
     get().pushToast(`Up next: ${next.title || "video"}`);
+    persistPlayback({ force: true });
     void publishSnapshot();
   }
 
@@ -840,6 +860,7 @@ export const useRoom = create<RoomState>((set, get) => {
     typing: {},
     upNext: null,
     audit: [],
+    failedChat: null,
 
     async loadMembers() {
       const s = get();
@@ -977,17 +998,30 @@ export const useRoom = create<RoomState>((set, get) => {
         throw new RoomError(err.code, err.message, true);
       }
 
-      // Watch history lives on the rooms row (members can SELECT it).
+      // Watch history + resume position live on the rooms row (members can SELECT).
       let watched: WatchedEntry[] = [];
+      let playback: PlaybackPosition | null = null;
       try {
         const supabase = getSupabase();
         const res = supabase
-          ? await supabase.from("rooms").select("watched").eq("code", code).maybeSingle()
+          ? await supabase.from("rooms").select("watched, playback").eq("code", code).maybeSingle()
           : null;
         if (Array.isArray(res?.data?.watched)) watched = res.data.watched as WatchedEntry[];
+        const pb = res?.data?.playback as PlaybackPosition | null | undefined;
+        if (pb && typeof pb.videoId === "string" && typeof pb.time === "number") {
+          playback = {
+            videoId: pb.videoId,
+            time: Math.max(0, pb.time),
+            playing: !!pb.playing,
+            updatedAt: typeof pb.updatedAt === "number" ? pb.updatedAt : 0,
+          };
+          // Stale position from a different video — ignore it.
+          if (joined.videoId && playback.videoId !== joined.videoId) playback = null;
+        }
       } catch {
-        /* history is non-essential */
+        /* history/resume are non-essential */
       }
+      resumeRef = playback;
 
       set({
         code,
@@ -1012,6 +1046,7 @@ export const useRoom = create<RoomState>((set, get) => {
         typing: {},
         upNext: null,
         audit: [],
+        failedChat: null,
       });
       selfProfile = p;
       await connect(code, p);
@@ -1026,6 +1061,8 @@ export const useRoom = create<RoomState>((set, get) => {
       }, 5000);
       void heartbeatRpc(code);
       heartbeatTimer = setInterval(() => void heartbeatRpc(code), HEARTBEAT_MS);
+      if (playbackPersistTimer) clearInterval(playbackPersistTimer);
+      playbackPersistTimer = setInterval(() => persistPlayback(), PLAYBACK_PERSIST_MS);
     },
 
     leaveRoom() {
@@ -1035,6 +1072,9 @@ export const useRoom = create<RoomState>((set, get) => {
       driftTimer = null;
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       heartbeatTimer = null;
+      if (playbackPersistTimer) clearInterval(playbackPersistTimer);
+      playbackPersistTimer = null;
+      resumeRef = null;
       if (typingHeartbeat) clearInterval(typingHeartbeat);
       typingHeartbeat = null;
       typingFlag = false;
@@ -1071,6 +1111,7 @@ export const useRoom = create<RoomState>((set, get) => {
         typing: {},
         upNext: null,
         audit: [],
+        failedChat: null,
       });
       const url = new URL(location.href);
       url.searchParams.delete("room");
@@ -1086,6 +1127,10 @@ export const useRoom = create<RoomState>((set, get) => {
           engine?.handlePlayerEnded();
         } else if (e.type === "error") {
           get().pushToast("This video can't be played here", "error");
+        } else if (e.type === "ready") {
+          // A sync answer may have arrived while the iframe was still warming
+          // up — the engine held it; apply it now that the player can take it.
+          engine?.flushPendingRemote();
         }
       });
       engine?.requestSync();
@@ -1097,11 +1142,13 @@ export const useRoom = create<RoomState>((set, get) => {
       if (!s.videoId || !playerAdapter) return;
       if (playerAdapter.isPlaying()) engine?.localPause();
       else engine?.localPlay();
+      persistPlayback({ force: true });
     },
 
     seekTo(time) {
       if (!get().videoId) return;
       engine?.localSeek(time);
+      persistPlayback({ force: true });
     },
 
     /**
@@ -1143,6 +1190,7 @@ export const useRoom = create<RoomState>((set, get) => {
         void saveRoomSettings(s.code, { video_id: id });
         void fetchVideoTitle(id).then((title) => recordWatched(id, title));
       }
+      persistPlayback({ force: true });
     },
 
     sendChat(text) {
@@ -1151,8 +1199,12 @@ export const useRoom = create<RoomState>((set, get) => {
       const supabase = getSupabase();
       if (!profile || !s.code || !supabase || !text.trim()) return;
       const selfMember = s.members.find((m) => m.user_id === profile.id);
+      // Blocked sends hand the text back to the composer (submit already
+      // cleared it) so nothing typed is ever silently dropped.
+      const restore = () => set({ failedChat: { text: text.trim().slice(0, 500), nonce: Date.now() } });
       if (isMuted(selfMember)) {
         get().pushToast("You're muted", "error");
+        restore();
         return;
       }
       if (s.roomSlowMode > 0) {
@@ -1166,11 +1218,13 @@ export const useRoom = create<RoomState>((set, get) => {
         const waitMs = s.roomSlowMode * 1000 - (Date.now() - lastOwn);
         if (waitMs > 0) {
           get().pushToast(`Slow mode — wait ${Math.ceil(waitMs / 1000)}s`, "error");
+          restore();
           return;
         }
       }
       if (!chatOut.allow(profile.id) || !chatOutGap.allow(profile.id)) {
         get().pushToast("You're messaging too fast", "error");
+        restore();
         return;
       }
       const msg: ChatMessage = {
@@ -1208,6 +1262,9 @@ export const useRoom = create<RoomState>((set, get) => {
           } else {
             get().pushToast("Message not sent", "error");
           }
+          // Give the text back to the composer so a failed send (or a
+          // refresh mid-insert) never silently eats what the user typed.
+          set({ failedChat: { text: msg.text, nonce: Date.now() } });
         });
     },
 
@@ -1500,6 +1557,10 @@ export const useRoom = create<RoomState>((set, get) => {
       if (get().unread > 0) set({ unread: 0 });
     },
 
+    dismissFailedChat() {
+      if (get().failedChat) set({ failedChat: null });
+    },
+
     pushToast(text, kind = "info", opts) {
       // Guards against toast floods (remote actions, rate-limit notices, ...):
       // same message within 3s is deduped, and globally at most ~1 per 350ms.
@@ -1552,6 +1613,53 @@ export function canControlNow(): boolean {
   return (
     s.hostId === selfProfile.id || s.guestsCanControl || s.grantedTo.includes(selfProfile.id)
   );
+}
+
+/**
+ * Start position for a rejoining client: the host-mirrored playback row,
+ * advanced by wall-clock elapsed time when it was playing. Live sync answers
+ * from an online host still override this — it's the fallback when nobody's
+ * broadcasting (host refreshing/crashed) or the answer lost the iframe race.
+ */
+function resumeStartSeconds(videoId: string): number {
+  const r = resumeRef;
+  if (!r || r.videoId !== videoId) return 0;
+  const age = Math.max(0, (Date.now() - r.updatedAt) / 1000);
+  return Math.max(0, r.time + (r.playing ? age : 0));
+}
+
+/** Current playback position as a persistable row, or null if nothing's loaded. */
+function currentPlayback(): PlaybackPosition | null {
+  const ref = engine?.getLocalRef();
+  if (!ref?.videoId) return null;
+  return {
+    videoId: ref.videoId,
+    time: playerAdapter?.ready() ? playerAdapter.getTime() : ref.time,
+    playing: playerAdapter?.ready() ? playerAdapter.isPlaying() : ref.playing,
+    updatedAt: Date.now(),
+  };
+}
+
+/**
+ * Host-only: mirror the playback position onto rooms.playback so a refresh
+ * resumes where everyone stopped instead of restarting at 0. RLS rejects
+ * non-host writes (saveRoomSettings returns false — silently ignored here).
+ */
+function persistPlayback(opts?: { force?: boolean }): void {
+  const s = useRoom.getState();
+  if (!s.code || !selfProfile || s.hostId !== selfProfile.id) return;
+  const now = Date.now();
+  if (!opts?.force && now - lastPlaybackPersistAt < PLAYBACK_PERSIST_MIN_GAP) return;
+  const pos = currentPlayback();
+  if (!pos) return;
+  lastPlaybackPersistAt = now;
+  resumeRef = pos;
+  void saveRoomSettings(s.code, { playback: pos });
+}
+
+/** pagehide flush: write the position immediately, ignoring the min gap. */
+function flushPlaybackNow(): void {
+  persistPlayback({ force: true });
 }
 
 export function isHostNow(): boolean {

@@ -66,6 +66,12 @@ export class SyncEngine {
   private lastAppliedSentAt = 0;
   private applying = false;
   private applyTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Latest remote payload received before the player was ready (kept so a
+   *  refresh's sync answer isn't lost to the iframe warm-up race). */
+  private pendingRemote: {
+    payload: PlaybackPayload & { action?: ControlPayload["action"] };
+    notifyFrom: string;
+  } | null = null;
   private unsubscribers: Array<() => void> = [];
   private started = false;
   private outTimer: ReturnType<typeof setTimeout> | null = null;
@@ -99,6 +105,7 @@ export class SyncEngine {
 
   destroy(): void {
     this.started = false;
+    this.pendingRemote = null;
     if (this.applyTimer) clearTimeout(this.applyTimer);
     if (this.outTimer) clearTimeout(this.outTimer);
     this.outTimer = null;
@@ -306,7 +313,13 @@ export class SyncEngine {
   }
 
   private applyPayload(p: PlaybackPayload & { action?: ControlPayload["action"]; senderName?: string }, notifyFrom: string): void {
-    if (!this.opts.player.ready()) return;
+    if (!this.opts.player.ready()) {
+      // Player (YouTube iframe) still warming up — common right after a
+      // refresh. Hold the latest payload and flush it once ready instead of
+      // dropping it (which used to leave the rejoiner at 0s).
+      this.pendingRemote = { payload: { ...p }, notifyFrom };
+      return;
+    }
     const age = clamp((nowMs() - p.sentAt) / 1000, 0, 15);
     const target = Math.max(0, p.time + (p.playing ? age : 0));
     const currentVideo = this.opts.getVideoId();
@@ -337,6 +350,14 @@ export class SyncEngine {
       else if (p.action === "play") this.opts.onRemoteAction(`${name} pressed play`);
       else if (p.action === "seek") this.opts.onRemoteAction(`${name} skipped`);
     }
+  }
+
+  /** Apply a remote payload that arrived while the player was still loading. */
+  flushPendingRemote(): void {
+    if (!this.pendingRemote || !this.opts.player.ready()) return;
+    const { payload, notifyFrom } = this.pendingRemote;
+    this.pendingRemote = null;
+    this.applyPayload(payload, notifyFrom);
   }
 
   private respondToSyncRequest(): void {
@@ -373,6 +394,8 @@ export class SyncEngine {
   tick(now = nowMs()): void {
     if (!this.started || this.applying) return;
     if (!this.opts.player.ready()) return;
+    this.flushPendingRemote();
+    if (!this.started || this.applying) return;
     if (this.localRef.sentAt) {
       const expected = this.localRef.playing
         ? computeExpectedTime(this.localRef, now)

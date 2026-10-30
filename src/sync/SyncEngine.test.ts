@@ -212,6 +212,73 @@ describe("SyncEngine remote apply", () => {
   });
 });
 
+describe("SyncEngine pending remote while player warms up", () => {
+  it("holds a control payload received before the player is ready and applies it on flush", () => {
+    const { engine, player, setVideoId } = makeEngine();
+    setVideoId("abcdefghijk");
+    player.setReady(false);
+    engine.applyControl({
+      videoId: "abcdefghijk", time: 42, playing: false, sentAt: Date.now(),
+      senderId: "self", senderName: "Host", action: "seek", notify: false,
+    } satisfies ControlPayload);
+    // Dropped on the floor before — the rejoiner used to sit at 0s.
+    expect(player.getTime()).toBe(0);
+    player.setReady(true);
+    engine.flushPendingRemote();
+    expect(player.getTime()).toBeCloseTo(42, 0);
+    expect(player.isPlaying()).toBe(false);
+  });
+
+  it("keeps only the latest payload when several arrive before ready", () => {
+    const { engine, player, setVideoId } = makeEngine();
+    setVideoId("abcdefghijk");
+    player.setReady(false);
+    const now = Date.now();
+    engine.applyControl({
+      videoId: "abcdefghijk", time: 10, playing: true, sentAt: now,
+      senderId: "self", senderName: "Host", action: "play", notify: false,
+    } satisfies ControlPayload);
+    engine.applyControl({
+      videoId: "abcdefghijk", time: 77, playing: false, sentAt: now + 1,
+      senderId: "self", senderName: "Host", action: "pause", notify: false,
+    } satisfies ControlPayload);
+    player.setReady(true);
+    engine.flushPendingRemote();
+    expect(player.getTime()).toBeCloseTo(77, 0);
+    expect(player.isPlaying()).toBe(false);
+  });
+
+  it("flushes a pending payload from tick() once the player is ready", () => {
+    const { engine, player, setVideoId } = makeEngine();
+    setVideoId("abcdefghijk");
+    player.setReady(false);
+    engine.applySnapshot({
+      videoId: "abcdefghijk", time: 30, playing: true, sentAt: Date.now(),
+      senderId: "self", hostId: "self", guestsCanControl: true,
+      queue: [], version: 1,
+    } satisfies RoomSnapshot);
+    player.setReady(true);
+    engine.tick(Date.now());
+    expect(player.getTime()).toBeCloseTo(30, 0);
+    expect(player.isPlaying()).toBe(true);
+  });
+
+  it("does not flush after destroy", () => {
+    const { engine, player, setVideoId } = makeEngine();
+    setVideoId("abcdefghijk");
+    player.setReady(false);
+    engine.applyControl({
+      videoId: "abcdefghijk", time: 42, playing: true, sentAt: Date.now(),
+      senderId: "self", senderName: "Host", action: "play", notify: false,
+    } satisfies ControlPayload);
+    engine.destroy();
+    player.setReady(true);
+    engine.flushPendingRemote();
+    expect(player.isPlaying()).toBe(false);
+    expect(player.getTime()).toBe(0);
+  });
+});
+
 describe("SyncEngine sender validation", () => {
   it("drops control from a non-host sender while playback is host-locked", () => {
     const { engine, player, setVideoId, setRole } = makeEngine();

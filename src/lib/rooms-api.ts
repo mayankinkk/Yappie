@@ -6,6 +6,14 @@ export interface WatchedEntry {
   at: number;
 }
 
+/** Host-mirrored playback position on the rooms row (resume after refresh). */
+export interface PlaybackPosition {
+  videoId: string;
+  time: number;
+  playing: boolean;
+  updatedAt: number;
+}
+
 export interface RoomRow {
   code: string;
   host_id: string;
@@ -16,6 +24,7 @@ export interface RoomRow {
   video_id: string | null;
   granted_to?: string[] | null;
   watched?: WatchedEntry[] | null;
+  playback?: PlaybackPosition | null;
   password_hash?: string | null;
   slow_mode_seconds?: number | null;
 }
@@ -280,6 +289,7 @@ export async function saveRoomSettings(
     host_id?: string;
     granted_to?: string[];
     watched?: WatchedEntry[];
+    playback?: PlaybackPosition | null;
     slow_mode_seconds?: number;
   },
 ): Promise<boolean> {

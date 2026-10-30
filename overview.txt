@@ -1,4 +1,4 @@
-Yappie: overview
+Sofa: overview
 Updated: after the production rewrite.
 
 What it is: a free, browser-based watch party app (think Rave/Teleparty for YouTube). You create a room, friends join with a code or invite link, and everyone watches the same moment together — with chat, reactions, a shared queue, and optional voice chat.
@@ -27,7 +27,7 @@ Features:
 
 How sync works: each room is a Supabase Realtime channel. Playback state (video id, timestamp, playing, sender clock) is broadcast on every control action; receivers apply it, advancing by elapsed time for late arrivals. Clients >0.75s off the shared timeline re-seek every 5s. The host owns the room snapshot (queue, permissions, host identity) and re-broadcasts on change and on joiner sync-requests.
 
-Deploy: static hosting (Vercel/Netlify configs included). No backend database. Env vars: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, optional VITE_LIVEKIT_URL — or paste Supabase keys in the first-run setup overlay.
+Deploy: static hosting (Vercel/Netlify configs included). No backend database. Env vars: VITE_SU PABASE_URL, VITE_SUPABASE_ANON_KEY, optional VITE_LIVEKIT_URL — or paste Supabase keys in the first-run setup overlay.
 
 Commands: npm run dev / npm test / npm run build / npm run preview. See README.md for full setup, LiveKit voice setup, and deploy steps.
 

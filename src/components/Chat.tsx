@@ -25,6 +25,9 @@ export default function Chat() {
   const markChatRead = useRoom((s) => s.markChatRead);
   const roomSlowMode = useRoom((s) => s.roomSlowMode);
   const setSlowMode = useRoom((s) => s.setSlowMode);
+  const code = useRoom((s) => s.code);
+  const failedChat = useRoom((s) => s.failedChat);
+  const dismissFailedChat = useRoom((s) => s.dismissFailedChat);
   const myId = useSession((s) => s.profile?.id);
   const isHost = !!myId && myId === hostId;
   const [text, setText] = useState("");
@@ -33,6 +36,32 @@ export default function Chat() {
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
+  /** True once the loaded history has been jumped to the bottom at least once. */
+  const scrolledToLatest = useRef(false);
+
+  // Restore the unsent draft for this room (survives a refresh; cleared on send).
+  useEffect(() => {
+    if (!code) return;
+    let draft = "";
+    try {
+      draft = sessionStorage.getItem(`yappie.draft.${code}`) || "";
+    } catch {
+      /* storage blocked — draft just won't persist */
+    }
+    setText(draft);
+  }, [code]);
+
+  useEffect(() => {
+    if (!failedChat) return;
+    // Put a failed message's text back, but never clobber a newer draft;
+    // re-persist it too, since submit already cleared the stored draft.
+    if (!text) {
+      setText(failedChat.text);
+      saveDraft(failedChat.text);
+    }
+    dismissFailedChat();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [failedChat, text, code]);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -53,6 +82,18 @@ export default function Chat() {
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
+    if (messages.length === 0) {
+      scrolledToLatest.current = false;
+      return;
+    }
+    // After a refresh/rejoin the history loads into an empty list at
+    // scrollTop 0 — the near-bottom check would leave you reading the
+    // oldest messages. Jump to the latest once, then follow normally.
+    if (!scrolledToLatest.current) {
+      scrolledToLatest.current = true;
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [messages]);
@@ -63,11 +104,22 @@ export default function Chat() {
     return () => clearInterval(t);
   }, []);
 
+  function saveDraft(v: string) {
+    if (!code) return;
+    try {
+      if (v) sessionStorage.setItem(`yappie.draft.${code}`, v);
+      else sessionStorage.removeItem(`yappie.draft.${code}`);
+    } catch {
+      /* storage blocked — draft just won't persist */
+    }
+  }
+
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!text.trim()) return;
     sendChat(text);
     setText("");
+    saveDraft("");
     setTyping(false);
     const el = listRef.current;
     if (el) requestAnimationFrame(() => (el.scrollTop = el.scrollHeight));
@@ -89,6 +141,7 @@ export default function Chat() {
   function insertEmoji(e: string) {
     const next = (text + e).slice(0, 500);
     setText(next);
+    saveDraft(next);
     if (next.trim()) setTyping(true);
     inputRef.current?.focus();
   }
@@ -247,6 +300,7 @@ export default function Chat() {
           onChange={(e) => {
             const v = e.target.value;
             setText(v);
+            saveDraft(v);
             setTyping(v.trim().length > 0);
           }}
         />
