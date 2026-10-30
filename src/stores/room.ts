@@ -998,28 +998,36 @@ export const useRoom = create<RoomState>((set, get) => {
         throw new RoomError(err.code, err.message, true);
       }
 
-      // Watch history + resume position live on the rooms row (members can SELECT).
+      // Watch history + resume position live on the rooms row (members can
+      // SELECT). Fetched as two queries on purpose: `playback` only exists
+      // after migration 0015, and one joint select would fail wholesale on an
+      // unapplied schema — taking the history down with it.
       let watched: WatchedEntry[] = [];
       let playback: PlaybackPosition | null = null;
-      try {
-        const supabase = getSupabase();
-        const res = supabase
-          ? await supabase.from("rooms").select("watched, playback").eq("code", code).maybeSingle()
-          : null;
-        if (Array.isArray(res?.data?.watched)) watched = res.data.watched as WatchedEntry[];
-        const pb = res?.data?.playback as PlaybackPosition | null | undefined;
-        if (pb && typeof pb.videoId === "string" && typeof pb.time === "number") {
-          playback = {
-            videoId: pb.videoId,
-            time: Math.max(0, pb.time),
-            playing: !!pb.playing,
-            updatedAt: typeof pb.updatedAt === "number" ? pb.updatedAt : 0,
-          };
-          // Stale position from a different video — ignore it.
-          if (joined.videoId && playback.videoId !== joined.videoId) playback = null;
+      const supabase = getSupabase();
+      if (supabase) {
+        try {
+          const res = await supabase.from("rooms").select("watched").eq("code", code).maybeSingle();
+          if (Array.isArray(res?.data?.watched)) watched = res.data.watched as WatchedEntry[];
+        } catch {
+          /* history is non-essential */
         }
-      } catch {
-        /* history/resume are non-essential */
+        try {
+          const res = await supabase.from("rooms").select("playback").eq("code", code).maybeSingle();
+          const pb = res?.data?.playback as PlaybackPosition | null | undefined;
+          if (pb && typeof pb.videoId === "string" && typeof pb.time === "number") {
+            playback = {
+              videoId: pb.videoId,
+              time: Math.max(0, pb.time),
+              playing: !!pb.playing,
+              updatedAt: typeof pb.updatedAt === "number" ? pb.updatedAt : 0,
+            };
+            // Stale position from a different video — ignore it.
+            if (joined.videoId && playback.videoId !== joined.videoId) playback = null;
+          }
+        } catch {
+          /* resume is non-essential (column lands with 0015) */
+        }
       }
       resumeRef = playback;
 
