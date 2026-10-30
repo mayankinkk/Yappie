@@ -247,13 +247,14 @@ function toQueueItem(row: QueueRow): QueueItem {
   };
 }
 
-// Best-effort membership close when the tab goes away (crash path is claim_host()).
+// Best-effort shutdown when the tab goes away: flush the playback position
+// immediately. Handoff is deliberately NOT attempted here — leave_room()
+// would promote a guest on every refresh (and the fetch often died with the
+// tab anyway, making retention a coin flip). Letting the row stand means a
+// fast refresh keeps the room; a real departure is caught by presence and
+// claim_host() once last_seen goes stale (the crash path).
 function handlePageHide(): void {
-  const code = useRoom.getState().code;
-  if (code) {
-    flushPlaybackNow();
-    void leaveRoomRpc(code);
-  }
+  if (useRoom.getState().code) flushPlaybackNow();
 }
 if (typeof window !== "undefined") window.addEventListener("pagehide", handlePageHide);
 
