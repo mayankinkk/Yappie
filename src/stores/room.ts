@@ -1481,7 +1481,10 @@ export const useRoom = create<RoomState>((set, get) => {
       const idx = s.queue.findIndex((q) => q.id === id);
       if (idx === -1) return;
       const item = s.queue[idx];
-      set({ queue: s.queue.slice(idx + 1) });
+      // Remove only the item being played — everything queued before it
+      // stays (mirrors advanceFromQueue; the old slice(idx + 1) wiped the
+      // head of the queue as a side effect of jumping).
+      set({ queue: s.queue.filter((q) => q.id !== id) });
       engine?.localLoad(item.videoId, true);
       recordWatched(item.videoId, item.title);
       void publishSnapshot();
