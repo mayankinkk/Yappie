@@ -236,6 +236,28 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
           const pct = duration ? clamp((v / duration) * 100, 0, 100) : 0;
           e.target.style.setProperty("--fill", String(pct));
         }}
+        onKeyDown={(e) => {
+          // Once the slider itself has focus the window handler skips it
+          // (INPUT guard) and native arrow-stepping only moves the thumb —
+          // without this the nudge never reached seekTo and the 250ms poll
+          // snapped it back. Mirror the global ←/→ semantics here.
+          if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+          if (e.metaKey || e.ctrlKey || e.altKey) return;
+          e.preventDefault();
+          if (disabled) return;
+          if (!canControl) {
+            requestControl();
+            return;
+          }
+          const step = e.shiftKey ? 30 : 5;
+          const current = Number(e.currentTarget.value || 0);
+          const max = duration > 0 ? duration : Number.MAX_SAFE_INTEGER;
+          const target = clamp(e.key === "ArrowRight" ? current + step : current - step, 0, max);
+          e.currentTarget.value = String(target);
+          const pct = duration ? clamp((target / duration) * 100, 0, 100) : 0;
+          e.currentTarget.style.setProperty("--fill", String(pct));
+          seekTo(target);
+        }}
         onPointerUp={onSeekCommit}
       />
       <span className="time-label">
