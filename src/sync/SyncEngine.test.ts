@@ -210,6 +210,25 @@ describe("SyncEngine remote apply", () => {
     } satisfies ControlPayload);
     expect(player.isPlaying()).toBe(true);
   });
+
+  it("applies a payload from another sender even when its clock lags the previous one", () => {
+    const { engine, player, setVideoId, setRole } = makeEngine();
+    setRole({ selfId: "guest", hostId: "host", guestsCanControl: true });
+    setVideoId("abcdefghijk");
+    const base = Date.now();
+    // Host's clock runs ahead…
+    engine.applyControl({
+      videoId: "abcdefghijk", time: 50, playing: true, sentAt: base + 60_000,
+      senderId: "host", senderName: "Host", action: "play", notify: false,
+    } satisfies ControlPayload);
+    // …a granted guest's older clock must not be treated as stale.
+    engine.applyControl({
+      videoId: "abcdefghijk", time: 20, playing: false, sentAt: base,
+      senderId: "guest-2", senderName: "Guest", action: "pause", notify: false,
+    } satisfies ControlPayload);
+    expect(player.isPlaying()).toBe(false);
+    expect(player.getTime()).toBeCloseTo(20, 0);
+  });
 });
 
 describe("SyncEngine pending remote while player warms up", () => {

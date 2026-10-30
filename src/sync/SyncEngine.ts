@@ -63,7 +63,8 @@ export class SyncEngine {
   private opts: SyncEngineOptions;
   private localRef: PlaybackPayload = { videoId: "", time: 0, playing: false, sentAt: 0 };
   private lastDrift: number | null = null;
-  private lastAppliedSentAt = 0;
+  /** Newest applied sentAt per sender — see isStale(). */
+  private lastAppliedFrom: Record<string, number> = {};
   private applying = false;
   private applyTimer: ReturnType<typeof setTimeout> | null = null;
   /** Latest remote payload received before the player was ready (kept so a
@@ -106,6 +107,7 @@ export class SyncEngine {
   destroy(): void {
     this.started = false;
     this.pendingRemote = null;
+    this.lastAppliedFrom = {};
     if (this.applyTimer) clearTimeout(this.applyTimer);
     if (this.outTimer) clearTimeout(this.outTimer);
     this.outTimer = null;
@@ -292,23 +294,36 @@ export class SyncEngine {
     void this.opts.transport.send("snapshot", payload);
   }
 
+  /**
+   * Drop out-of-date payloads without mixing clocks across senders: a
+   * single global sentAt rejected everything from a peer whose clock lags
+   * the previous sender's (the host's clock would silently mute a
+   * granted guest's controls). Order is tracked per senderId — replaying an
+   * old capture from that same sender is still rejected.
+   */
+  private isStale(senderId: string | undefined, sentAt: number): boolean {
+    const key = String(senderId || "?");
+    const prev = this.lastAppliedFrom[key] ?? 0;
+    if (sentAt < prev) return true;
+    this.lastAppliedFrom[key] = sentAt;
+    return false;
+  }
+
   applyControl(raw: unknown): void {
     const p = raw as ControlPayload | null;
     if (!p || !p.videoId || typeof p.sentAt !== "number") return;
     if (!this.inboundControl.allow(String(p.senderId || "?"))) return;
     if (!this.isTrustedSender(p.senderId)) return;
-    if (p.sentAt < this.lastAppliedSentAt) return;
-    this.lastAppliedSentAt = p.sentAt;
+    if (this.isStale(p.senderId, p.sentAt)) return;
     this.applyPayload(p, p.notify ? p.senderName : "");
   }
 
   applySnapshot(raw: unknown): void {
     const p = raw as RoomSnapshot | null;
     if (!p || typeof p.sentAt !== "number") return;
-    if (p.sentAt < this.lastAppliedSentAt) return;
     if (!p.videoId) return;
     if (!this.isTrustedSender(p.senderId)) return;
-    this.lastAppliedSentAt = p.sentAt;
+    if (this.isStale(p.senderId, p.sentAt)) return;
     this.applyPayload(p, "");
   }
 
