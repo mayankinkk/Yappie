@@ -303,7 +303,7 @@ export const useRoom = create<RoomState>((set, get) => {
       if (playerAdapter?.ready()) {
         localLoadedVideoId = videoId;
         const start = resumeStartSeconds(videoId);
-        const resumePlaying = !!resumeRef && resumeRef.videoId === videoId && resumeRef.playing;
+        const resumePlaying = resumeShouldAutoplay(videoId);
         playerAdapter.load(videoId, start, resumePlaying);
         engine?.applyLoadedState({ videoId, time: start, playing: resumePlaying });
         return;
@@ -1624,16 +1624,31 @@ export function canControlNow(): boolean {
 }
 
 /**
- * Start position for a rejoining client: the host-mirrored playback row,
- * advanced by wall-clock elapsed time when it was playing. Live sync answers
- * from an online host still override this — it's the fallback when nobody's
- * broadcasting (host refreshing/crashed) or the answer lost the iframe race.
+ * Start position for a rejoining client: the host-mirrored playback row.
+ * Wall-clock catch-up only applies within RESUME_CATCHUP_MAX_SECS of the
+ * last host write — the row's `playing` flag means "was going" at persist
+ * time, not "keep going forever"; beyond the window the row is stale (the
+ * host left) and catching up would push short videos past their end.
+ * Live sync answers from an online host still override this — it's the
+ * fallback when nobody's broadcasting (host refreshing/crashed) or the
+ * answer lost the iframe race.
  */
+const RESUME_CATCHUP_MAX_SECS = 300;
+
 function resumeStartSeconds(videoId: string): number {
   const r = resumeRef;
   if (!r || r.videoId !== videoId) return 0;
+  if (!r.playing) return Math.max(0, r.time);
   const age = Math.max(0, (Date.now() - r.updatedAt) / 1000);
-  return Math.max(0, r.time + (r.playing ? age : 0));
+  if (age > RESUME_CATCHUP_MAX_SECS) return Math.max(0, r.time);
+  return Math.max(0, r.time + age);
+}
+
+/** Only autoplay a resume when the room was actively playing recently. */
+function resumeShouldAutoplay(videoId: string): boolean {
+  const r = resumeRef;
+  if (!r || r.videoId !== videoId || !r.playing) return false;
+  return (Date.now() - r.updatedAt) / 1000 <= RESUME_CATCHUP_MAX_SECS;
 }
 
 /** Current playback position as a persistable row, or null if nothing's loaded. */
