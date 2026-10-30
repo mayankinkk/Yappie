@@ -99,6 +99,14 @@ function mapError(raw: string): RoomError {
   if (msg.includes("kicked")) return new RoomError("kicked", "You were kicked from this room");
   if (msg.includes("locked")) return new RoomError("locked", "The room is locked right now");
   if (msg.includes("rate_limited")) return new RoomError("rate", "Slow down — rooms created too fast");
+  if (msg.includes("queue_full")) return new RoomError("queue_full", "Queue is full (max 50)");
+  if (msg.includes("already_queued")) return new RoomError("already", "Already in the queue");
+  if (msg.includes("not_allowed")) {
+    return new RoomError("not_allowed", "Only the host or the adder can remove that");
+  }
+  if (msg.includes("invalid_video") || msg.includes("invalid_item")) {
+    return new RoomError("invalid", "Paste a valid YouTube link");
+  }
   if (msg.includes("not_host")) return new RoomError("host", "Only the host can do that");
   if (msg.includes("host_active") || msg.includes("not_senior") || msg.includes("invalid_target")) {
     return new RoomError("host", "Host handoff rejected");
@@ -276,6 +284,46 @@ export async function voteQueueRpc(code: string, itemId: string): Promise<VoteQu
   if (error) throw mapError(rpcMsg(error));
   const raw = (data ?? {}) as { queue?: QueueRow[]; queueVersion?: number };
   return { queue: Array.isArray(raw.queue) ? raw.queue : [], queueVersion: raw.queueVersion ?? 0 };
+}
+
+function queueResult(data: unknown): VoteQueueResult {
+  const raw = (data ?? {}) as { queue?: QueueRow[]; queueVersion?: number };
+  return { queue: Array.isArray(raw.queue) ? raw.queue : [], queueVersion: raw.queueVersion ?? 0 };
+}
+
+/**
+ * Server-authoritative add (0016): membership + duplicate + max checks and
+ * `addedBy = auth.uid()` are enforced in Postgres, so the mutation works
+ * without the host's browser and can't be spoofed. The rooms UPDATE echo
+ * delivers the new queue to every member.
+ */
+export async function addQueueItemRpc(
+  code: string,
+  item: { id: string; videoId: string; title?: string | null; name?: string },
+): Promise<VoteQueueResult> {
+  const supabase = getSupabase();
+  if (!supabase) throw new RoomError("config", "Connect Supabase first");
+  const { data, error } = await supabase.rpc("add_queue_item", {
+    p_code: code,
+    p_item_id: item.id,
+    p_video_id: item.videoId,
+    p_title: item.title ?? null,
+    p_name: item.name ?? null,
+  });
+  if (error) throw mapError(rpcMsg(error));
+  return queueResult(data);
+}
+
+/** Server-authoritative remove (0016): host may remove any item, a member only their own. */
+export async function removeQueueItemRpc(code: string, itemId: string): Promise<VoteQueueResult> {
+  const supabase = getSupabase();
+  if (!supabase) throw new RoomError("config", "Connect Supabase first");
+  const { data, error } = await supabase.rpc("remove_queue_item", {
+    p_code: code,
+    p_item_id: itemId,
+  });
+  if (error) throw mapError(rpcMsg(error));
+  return queueResult(data);
 }
 
 export async function saveRoomSettings(

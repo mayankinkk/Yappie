@@ -19,6 +19,7 @@ import { playSound } from "../lib/sound";
 import { SyncEngine, computeExpectedTime } from "../sync/SyncEngine";
 import {
   RoomError,
+  addQueueItemRpc,
   claimHostRpc,
   createRoomRpc,
   heartbeatRpc,
@@ -27,6 +28,7 @@ import {
   moderateMemberRpc,
   kickMemberRpc,
   deleteChatMessageRpc,
+  removeQueueItemRpc,
   toggleChatReactionRpc,
   voteQueueRpc,
   saveRoomSettings,
@@ -61,7 +63,6 @@ const voteOut = new RateLimiter(10, 10_000);
 // against modified clients that skip the sender-side guards above.
 const chatIn = new RateLimiter(5, 5000);
 const reactionIn = new RateLimiter(8, 3000);
-const queueAddIn = new RateLimiter(6, 60_000);
 const toastGap = new MinGap(350);
 const membersRefresh = new MinGap(10_000);
 
@@ -194,7 +195,7 @@ interface RoomState {
   setTyping(active: boolean): void;
   setVoicePresence(inVoice: boolean): void;
   react(emoji: string): void;
-  addToQueue(input: string): Promise<void>;
+  addToQueue(input: string): Promise<boolean>;
   removeFromQueue(id: string): void;
   playFromQueue(id: string): void;
   moveQueue(from: number, to: number): void;
@@ -406,28 +407,6 @@ export const useRoom = create<RoomState>((set, get) => {
     // broadcasts carry playback state and must come from the server-known host.
     if (s.hostId && payload.senderId !== s.hostId) return;
     set({ videoId: payload.videoId || null, playing: payload.playing });
-  }
-
-  function handleQueueAdd(item: QueueItem): void {
-    const s = get();
-    if (selfProfile?.id !== s.hostId) return;
-    if (!item.videoId || !/^[\w-]{11}$/.test(item.videoId)) return;
-    if (s.queue.some((q) => q.videoId === item.videoId)) return;
-    if (s.queue.length >= QUEUE_MAX) return;
-    set({ queue: [...s.queue, item] });
-    void publishSnapshot();
-  }
-
-  function handleQueueRemove(payload: { id?: string; by?: string }): void {
-    const s = get();
-    if (selfProfile?.id !== s.hostId) return;
-    const id = typeof payload.id === "string" ? payload.id : "";
-    if (!id) return;
-    const item = s.queue.find((q) => q.id === id);
-    if (!item) return;
-    if (payload.by && payload.by !== item.addedBy && payload.by !== s.hostId) return;
-    set({ queue: s.queue.filter((q) => q.id !== id) });
-    void publishSnapshot();
   }
 
   /**
@@ -661,23 +640,9 @@ export const useRoom = create<RoomState>((set, get) => {
       playSound("reaction");
     });
 
-    t.on("queue-add", (payload) => {
-      const p = payload as QueueItem | null;
-      if (!p) return;
-      if (!queueAddIn.allow(String(p.addedBy || "?"))) return;
-      handleQueueAdd({
-        id: clampText(p.id, 64) || randomId(),
-        videoId: clampText(p.videoId, 32),
-        title: p.title ? clampText(p.title, 200) : null,
-        addedBy: clampText(p.addedBy, 64),
-        addedByName: clampText(p.addedByName, 40),
-        addedAt: typeof p.addedAt === "number" ? p.addedAt : Date.now(),
-        votes: {},
-      });
-    });
-    t.on("queue-remove", (payload) => handleQueueRemove(payload as { id?: string; by?: string }));
-
     // Server state: host_id, permissions, queue, bans — everything durable.
+    // (Queue mutations travel through this same path: the RPCs bump
+    // queue_version, and the UPDATE below echoes the result to everyone.)
     channel.on(
       "postgres_changes",
       { event: "UPDATE", schema: "public", table: "rooms", filter: `code=eq.${code}` },
@@ -1198,8 +1163,8 @@ export const useRoom = create<RoomState>((set, get) => {
       const s = get();
       const isController = canControlNow();
       if (!isController) {
-        await get().addToQueue(id);
-        get().pushToast("Only the host plays videos — added to the queue instead");
+        const queued = await get().addToQueue(id);
+        if (queued) get().pushToast("Only the host plays videos — added to the queue instead");
         return;
       }
       engine?.localLoad(id, true);
@@ -1399,18 +1364,32 @@ export const useRoom = create<RoomState>((set, get) => {
       addFloating(set, get, event);
     },
 
+    /**
+     * Queue add runs in Postgres (add_queue_item, 0016): works with the
+     * host offline, enforces membership/duplicate/max server-side, and
+     * stamps addedBy = auth.uid() so it can't be forged. Returns whether
+     * the item actually landed (callers clear inputs only on success).
+     */
     async addToQueue(input) {
       const id = extractVideoId(input);
       if (!id) {
         get().pushToast("Paste a valid YouTube link", "error");
-        return;
+        return false;
       }
       const profile = selfProfile;
       const s = get();
-      if (!profile || !transport) return;
+      if (!profile || !s.code) return false;
       if (s.queue.some((q) => q.videoId === id) || s.videoId === id) {
         get().pushToast("Already in the queue");
-        return;
+        return false;
+      }
+      if (s.queue.length >= QUEUE_MAX) {
+        get().pushToast("Queue is full (max 50)", "error");
+        return false;
+      }
+      if (!queueAddOut.allow(profile.id)) {
+        get().pushToast("Slow down with the queue requests", "error");
+        return false;
       }
       const item: QueueItem = {
         id: randomId(),
@@ -1421,36 +1400,35 @@ export const useRoom = create<RoomState>((set, get) => {
         addedAt: Date.now(),
         votes: {},
       };
-      if (s.hostId === profile.id) {
-        if (s.queue.length >= QUEUE_MAX) {
-          get().pushToast("Queue is full (max 50)", "error");
-          return;
-        }
-        set({ queue: [...s.queue, item] });
-        void publishSnapshot();
+      try {
+        const { queue, queueVersion } = await addQueueItemRpc(s.code, {
+          id: item.id,
+          videoId: id,
+          name: profile.name,
+        });
+        set({ queue: queue.map(toQueueItem), queueVersion });
         get().pushToast("Added to queue");
-      } else {
-        if (s.queue.length >= QUEUE_MAX || !queueAddOut.allow(profile.id)) {
-          get().pushToast("Slow down with the queue requests", "error");
-          return;
-        }
-        void transport.send("queue-add", item);
-        get().pushToast("Requested to add to queue");
+      } catch (e) {
+        // Server verdict (queue_full, already_queued, not_member, …) or
+        // network failure — nothing landed, so nothing is cleared downstream.
+        get().pushToast(e instanceof RoomError ? e.message : "Couldn't add to queue", "error");
+        return false;
       }
       const title = await fetchVideoTitle(id);
-      if (!title) return;
+      if (!title) return true;
       const state = get();
       const existing = state.queue.find((q) => q.id === item.id);
-      if (existing) {
+      if (existing && !existing.title) {
         set({ queue: state.queue.map((q) => (q.id === item.id ? { ...q, title } : q)) });
         if (state.hostId === profile.id) void publishSnapshot();
       }
+      return true;
     },
 
     removeFromQueue(id) {
       const s = get();
       const profile = selfProfile;
-      if (!profile || !transport) return;
+      if (!profile || !s.code) return;
       const item = s.queue.find((q) => q.id === id);
       if (!item) return;
       const allowed = item.addedBy === profile.id || s.hostId === profile.id;
@@ -1458,12 +1436,15 @@ export const useRoom = create<RoomState>((set, get) => {
         get().pushToast("Only the host or the adder can remove that", "error");
         return;
       }
-      if (s.hostId === profile.id) {
-        set({ queue: s.queue.filter((q) => q.id !== id) });
-        void publishSnapshot();
-      } else {
-        void transport.send("queue-remove", { id, by: profile.id });
-      }
+      // Server re-checks authorization against the stored addedBy (0016) —
+      // the local `allowed` check is UX, not the gate.
+      void removeQueueItemRpc(s.code, id)
+        .then(({ queue, queueVersion }) => {
+          set({ queue: queue.map(toQueueItem), queueVersion });
+        })
+        .catch((e: unknown) => {
+          get().pushToast(e instanceof RoomError ? e.message : "Couldn't remove that", "error");
+        });
     },
 
     playFromQueue(id) {
