@@ -258,7 +258,7 @@ if (typeof window !== "undefined") window.addEventListener("pagehide", handlePag
 
 export const useRoom = create<RoomState>((set, get) => {
   /** Server-authoritative room row → local state (RLS-backed; only ever the real host writes it). */
-  function applyRoomRow(row: RoomRow): void {
+  function applyRoomRow(row: RoomRow, opts?: { forceQueue?: boolean }): void {
     const s = get();
     const next: Partial<RoomState> = {
       hostId: row.host_id,
@@ -269,7 +269,14 @@ export const useRoom = create<RoomState>((set, get) => {
       videoId: row.video_id ?? null,
       grantedTo: Array.isArray(row.granted_to) ? row.granted_to : [],
     };
-    if (typeof row.queue_version === "number" && row.queue_version >= s.queueVersion) {
+    // Only adopt a queue that is genuinely newer: queue_version changes if
+    // and only if the content changes, so an equal version keeps the same
+    // array reference — playback-only room writes (every ~10s) then no
+    // longer hand every member a fresh queue array to re-render.
+    if (
+      typeof row.queue_version === "number" &&
+      (opts?.forceQueue || row.queue_version > s.queueVersion)
+    ) {
       next.queue = (row.queue || []).map(toQueueItem);
       next.queueVersion = row.queue_version;
     }
@@ -376,7 +383,9 @@ export const useRoom = create<RoomState>((set, get) => {
           .select("*")
           .eq("code", s.code)
           .maybeSingle();
-        if (data) applyRoomRow(data as RoomRow);
+        // RLS rejected our write — the server row is truth even at an equal
+        // queue_version (our local queue may be ahead of what landed).
+        if (data) applyRoomRow(data as RoomRow, { forceQueue: true });
       }
       get().pushToast("Only the host can change the room", "error");
       return;
