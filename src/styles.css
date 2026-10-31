@@ -127,6 +127,19 @@ a {
   border-color: var(--border);
 }
 
+/* Destructive action (Leave, kick, …): same ghost shape as the header
+ * buttons but red-tinted so it reads as "this ends the session". */
+.btn.danger {
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.45);
+  color: var(--red);
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: var(--red);
+}
+
 .btn.small {
   padding: 7px 12px;
   font-size: 0.86rem;

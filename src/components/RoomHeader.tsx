@@ -56,7 +56,7 @@ export default function RoomHeader() {
       <button className="btn small ghost" onClick={() => void copyLink()}>
         Copy invite
       </button>
-      <button className="btn small ghost" onClick={leaveRoom}>
+      <button className="btn small ghost danger" onClick={leaveRoom}>
         Leave
       </button>
     </header>
