@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRoom } from "../stores/room";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 /**
  * Host-only room settings (0017): identity (name/topic), participant cap,
@@ -18,6 +19,8 @@ export default function RoomSettings() {
   const [cap, setCap] = useState(maxMembers === null ? "" : String(maxMembers));
   const [approval, setApproval] = useState(requireApproval);
   const [saving, setSaving] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(cardRef, open, () => setOpen(false));
 
   function openForm() {
     setName(roomName || "");
@@ -55,9 +58,11 @@ export default function RoomSettings() {
         <div className="overlay" onClick={() => setOpen(false)}>
           <div
             className="overlay-card"
+            ref={cardRef}
             role="dialog"
             aria-modal="true"
             aria-label="Room settings"
+            tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
           >
             <h2>Room settings</h2>

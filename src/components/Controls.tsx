@@ -5,6 +5,7 @@ import { useSession } from "../stores/session";
 import { formatTime, clamp } from "../lib/time";
 import { toggleCinemaFullscreen, activeFullscreenElement } from "../lib/fullscreen";
 import { captionsEnabled, setCaptionsEnabled, CAPTION_LANGUAGES } from "../lib/captions";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface Props {
   player: YouTubePlayer | null;
@@ -53,6 +54,8 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
   const [fsIdle, setFsIdle] = useState(false);
   const sliderRef = useRef<HTMLInputElement>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
+  const helpRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(helpRef, showHelp, () => setShowHelp(false));
 
   const toggleCaptions = useCallback(() => {
     const next = !caps;
@@ -395,7 +398,7 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
           aria-label="Keyboard shortcuts"
           onClick={() => setShowHelp(false)}
         >
-          <div className="help-card" onClick={(e) => e.stopPropagation()}>
+          <div className="help-card" ref={helpRef} onClick={(e) => e.stopPropagation()}>
             <div className="help-head">
               <span>Keyboard shortcuts</span>
               <button

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   getSupabaseConfig,
   isSupabaseConfigured,
@@ -6,6 +6,7 @@ import {
   getLiveKitUrl,
   saveLiveKitUrl,
 } from "../lib/supabase";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface Props {
   onClose: () => void;
@@ -19,6 +20,9 @@ export default function SetupOverlay({ onClose, onSaved }: Props) {
   const [livekit, setLivekit] = useState(getLiveKitUrl() || "");
   const [error, setError] = useState("");
   const optional = !isSupabaseConfigured();
+  const cardRef = useRef<HTMLDivElement>(null);
+  // Tab stays inside the dialog; Escape is Cancel (mounted-only → active).
+  useFocusTrap(cardRef, true, onClose);
 
   function save() {
     const cleanUrl = url.trim().replace(/\/+$/, "");
@@ -41,7 +45,14 @@ export default function SetupOverlay({ onClose, onSaved }: Props) {
 
   return (
     <div className="overlay">
-      <div className="overlay-card">
+      <div
+        className="overlay-card"
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Connect Supabase"
+        tabIndex={-1}
+      >
         <h2>Connect Supabase</h2>
         <p>Yappie syncs rooms through free Supabase Realtime. Setup takes about two minutes:</p>
         <ol>

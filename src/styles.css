@@ -2773,3 +2773,18 @@ button.moment-jump:hover {
   gap: 4px;
   padding-left: 6px;
 }
+
+/* Global focus visibility (feature): an amber ring on every keyboard stop.
+   Lives at the end of the sheet so it outranks the historical
+   `outline: none` on .field and the range inputs (equal specificity,
+   later wins) — no interactive element is ever invisible when focused. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Overlays that opt out of the default ring on their scroll container. */
+.overlay-card:focus-visible,
+.help-card:focus-visible {
+  outline: none;
+}
