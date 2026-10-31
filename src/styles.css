@@ -976,6 +976,11 @@ a {
   color: #f08a8a;
 }
 
+.sync-chip.neutral {
+  border-color: #4a4540;
+  color: #a9a29a;
+}
+
 .watched-body {
   display: flex;
   flex-direction: column;

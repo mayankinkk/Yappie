@@ -46,7 +46,7 @@ function makeEngine(overrides: Partial<SyncEngineOptions> = {}) {
   const player = new FakePlayer();
   const transport = new FakeTransport();
   type Role = ReturnType<NonNullable<SyncEngineOptions["getRole"]>>;
-  let role: Role = { selfId: "self", selfName: "Self", hostId: "self", guestsCanControl: false };
+  let role: Role = { selfId: "viewer", selfName: "Self", hostId: "self", guestsCanControl: false };
   let videoId: string | null = null;
   const opts: SyncEngineOptions = {
     transport,
@@ -122,7 +122,8 @@ describe("computeDriftCorrection", () => {
 
 describe("SyncEngine control gating", () => {
   it("host can play and broadcasts a control event", () => {
-    const { engine, player, transport, setVideoId } = makeEngine();
+    const { engine, player, transport, setVideoId, setRole } = makeEngine();
+    setRole({ selfId: "self", hostId: "self", guestsCanControl: false });
     setVideoId("abcdefghijk");
     player.time = 10;
     engine.localPlay();
@@ -159,6 +160,37 @@ describe("SyncEngine control gating", () => {
     setVideoId("abcdefghijk");
     engine.localPlay();
     expect(player.isPlaying()).toBe(true);
+  });
+
+  it("localSeek broadcasts the seek TARGET even while the player still reports the old position", () => {
+    const { engine, player, transport, setVideoId, setRole } = makeEngine();
+    setRole({ selfId: "self", hostId: "self", guestsCanControl: false });
+    setVideoId("abcdefghijk");
+    player.time = 1.3; // YT reports the pre-seek position (seekTo is async)
+    engine.localSeek(121.3);
+    const control = transport.sent.find((s) => s.event === "control") as { payload: ControlPayload } | undefined;
+    expect(control?.payload.time).toBe(121.3);
+    expect(control?.payload.action).toBe("seek");
+  });
+
+  it("rebases localRef to the real position after a reverse-phantom pause", () => {
+    const onLocalState = vi.fn();
+    const { engine, player, setVideoId } = makeEngine({ onLocalState });
+    setVideoId("abcdefghijk");
+    player.time = 123;
+    player.playing = false;
+    engine.applyLoadedState({ videoId: "abcdefghijk", time: 123, playing: false });
+    // Phantom: the player keeps running even though intent says paused.
+    player.time = 129;
+    player.playing = true;
+    const t0 = Date.now();
+    engine.tick(t0); // arms blockSince
+    engine.tick(t0 + 3500); // pauses and rebases
+    expect(player.isPlaying()).toBe(false);
+    expect(engine.getLocalRef().time).toBe(129);
+    expect(onLocalState).toHaveBeenCalledWith(
+      expect.objectContaining({ playing: false, time: 129 }),
+    );
   });
 });
 
@@ -438,6 +470,32 @@ describe("SyncEngine drift correction", () => {
     engine.tick(Date.now() + 10_000);
     expect(player.getTime()).toBeCloseTo(100);
   });
+
+  it("corrects a paused player that sits away from the baseline", () => {
+    const { engine, player, setVideoId } = makeEngine();
+    setVideoId("abcdefghijk");
+    player.time = 100.5; // cue/load landed off the requested resume position
+    player.playing = false;
+    engine.applyLoadedState({ videoId: "abcdefghijk", time: 100, playing: false });
+    const seekSpy = vi.spyOn(player, "seek");
+    engine.tick(Date.now());
+    expect(seekSpy).toHaveBeenCalledWith(100);
+    expect(player.getTime()).toBe(100);
+    seekSpy.mockRestore();
+  });
+
+  it("does not rewind a paused player across a large gap (stale baseline)", () => {
+    const { engine, player, setVideoId } = makeEngine();
+    setVideoId("abcdefghijk");
+    player.time = 129;
+    player.playing = false;
+    engine.applyLoadedState({ videoId: "abcdefghijk", time: 31.3, playing: false });
+    const seekSpy = vi.spyOn(player, "seek");
+    engine.tick(Date.now());
+    expect(seekSpy).not.toHaveBeenCalled();
+    expect(player.getTime()).toBe(129);
+    seekSpy.mockRestore();
+  });
 });
 
 describe("SyncEngine blocked-autoplay settle", () => {
@@ -497,7 +555,8 @@ describe("SyncEngine snapshot", () => {
 
 describe("SyncEngine rate limiting", () => {
   it("coalesces a burst of play/pause into at most 2 sends, final state wins", async () => {
-    const { engine, player, transport, setVideoId } = makeEngine();
+    const { engine, player, transport, setVideoId, setRole } = makeEngine();
+    setRole({ selfId: "self", hostId: "self", guestsCanControl: false });
     setVideoId("abcdefghijk");
     engine.localPlay();
     engine.localPause();
@@ -518,7 +577,9 @@ describe("SyncEngine rate limiting", () => {
     engine.requestSync();
     engine.requestSync();
     engine.requestSync();
-    expect(transport.sent.filter((s) => s.event === "sync-request").length).toBe(1);
+    const reqs = transport.sent.filter((s) => s.event === "sync-request");
+    expect(reqs.length).toBe(1);
+    expect((reqs[0].payload as { senderId?: string }).senderId).toBe("viewer");
   });
 
   it("drops inbound control floods beyond 12/second per sender", () => {
@@ -558,8 +619,9 @@ describe("SyncEngine rate limiting", () => {
 
 describe("SyncEngine sync-request response", () => {
   it("responds with current playback when a sync-request arrives", () => {
-    const { player, transport, setVideoId } = makeEngine();
+    const { engine, player, transport, setVideoId } = makeEngine();
     setVideoId("abcdefghijk");
+    engine.applyLoadedState({ videoId: "abcdefghijk", time: 25, playing: false });
     player.time = 25;
     player.playing = true;
     transport.emit("sync-request", {});
@@ -571,5 +633,105 @@ describe("SyncEngine sync-request response", () => {
         resolve();
       }, 400);
     });
+  });
+
+  it("ignores its own echoed sync-request (REST-fallback self-echo)", () => {
+    const { engine, player, transport, setVideoId } = makeEngine();
+    setVideoId("abcdefghijk");
+    engine.applyLoadedState({ videoId: "abcdefghijk", time: 25, playing: false });
+    player.time = 25;
+    transport.emit("sync-request", { senderId: "viewer" });
+    return new Promise<void>((resolve) => {
+      setTimeout(() => {
+        expect(transport.sent.filter((s) => s.event === "control").length).toBe(0);
+        resolve();
+      }, 400);
+    });
+  });
+
+  it("stays silent when the local player has not loaded the room video", () => {
+    const { transport, setVideoId } = makeEngine();
+    setVideoId("abcdefghijk"); // room knows the video; our player never cued it
+    transport.emit("sync-request", {});
+    return new Promise<void>((resolve) => {
+      setTimeout(() => {
+        expect(transport.sent.filter((s) => s.event === "control").length).toBe(0);
+        resolve();
+      }, 400);
+    });
+  });
+});
+
+describe("SyncEngine self-echo and junk guards", () => {
+  it("drops a control payload from ourselves even when it would otherwise be trusted", () => {
+    const { engine, player, setVideoId, setRole } = makeEngine();
+    setRole({ selfId: "host", hostId: "host", guestsCanControl: false });
+    setVideoId("abcdefghijk");
+    player.time = 30;
+    player.playing = false;
+    engine.applyControl({
+      videoId: "abcdefghijk",
+      time: 0,
+      playing: true,
+      sentAt: Date.now(),
+      senderId: "host",
+      senderName: "",
+      action: "play",
+      notify: false,
+    } satisfies ControlPayload);
+    expect(player.isPlaying()).toBe(false);
+    expect(player.getTime()).toBe(30);
+  });
+
+  it("drops a control payload with a non-finite time", () => {
+    const { engine, player, setVideoId, setRole } = makeEngine();
+    setRole({ selfId: "viewer", hostId: "host", guestsCanControl: true });
+    setVideoId("abcdefghijk");
+    player.time = 30;
+    engine.applyControl({
+      videoId: "abcdefghijk",
+      time: Number.NaN,
+      playing: true,
+      sentAt: Date.now(),
+      senderId: "host",
+      senderName: "",
+      action: "play",
+      notify: false,
+    } satisfies ControlPayload);
+    expect(player.isPlaying()).toBe(false);
+    expect(player.getTime()).toBe(30);
+  });
+
+  it("re-pauses the player when intent is paused but playback is running", () => {
+    const { engine, player, setVideoId } = makeEngine();
+    setVideoId("abcdefghijk");
+    player.time = 10;
+    player.playing = true; // phantom: intent below says paused
+    engine.applyLoadedState({ videoId: "abcdefghijk", time: 10, playing: false });
+    const t0 = Date.now();
+    engine.tick(t0);
+    expect(player.isPlaying()).toBe(true); // grace window
+    engine.tick(t0 + 3500);
+    expect(player.isPlaying()).toBe(false);
+  });
+
+  it("tracks authoritative sync freshness (host always, guests only after a remote corroboration)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    try {
+      const { engine, setRole } = makeEngine();
+      setRole({ selfId: "viewer", hostId: "host", guestsCanControl: true });
+      expect(engine.hasAuthoritativeSync(45_000)).toBe(false);
+      engine.applyLoadedState({ videoId: "abcdefghijk", time: 10, playing: false });
+      expect(engine.hasAuthoritativeSync(45_000)).toBe(true);
+      vi.setSystemTime(1_000_000 + 46_000);
+      expect(engine.hasAuthoritativeSync(45_000)).toBe(false);
+
+      const hostSide = makeEngine();
+      hostSide.setRole({ selfId: "self", hostId: "self", guestsCanControl: false });
+      expect(hostSide.engine.hasAuthoritativeSync(45_000)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

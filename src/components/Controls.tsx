@@ -25,7 +25,9 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
   const denyControl = useRoom((s) => s.denyControl);
   const videoId = useRoom((s) => s.videoId);
   const drift = useRoom((s) => s.drift);
+  const syncFresh = useRoom((s) => s.syncFresh);
   const resyncNow = useRoom((s) => s.resyncNow);
+  const requestResync = useRoom((s) => s.requestResync);
   const profile = useSession((s) => s.profile);
   const canControl =
     !!profile && (profile.id === hostId || guestsCanControl || grantedTo.includes(profile.id));
@@ -270,14 +272,26 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
       <span className="time-label">
         {formatTime(time)} / {formatTime(duration)}
       </span>
-      {videoId && drift !== null && (
+      {videoId && (drift !== null || !syncFresh) && (
         <button
           type="button"
-          className={`sync-chip ${drift < 0.5 ? "ok" : drift < 1.5 ? "warn" : "bad"}`}
-          title="Playback drift vs the host — click to resync"
-          onClick={() => resyncNow()}
+          className={
+            !syncFresh
+              ? "sync-chip neutral"
+              : `sync-chip ${drift !== null && drift < 0.5 ? "ok" : drift !== null && drift < 1.5 ? "warn" : "bad"}`
+          }
+          title={
+            !syncFresh
+              ? "No fresh room state yet — click to re-check"
+              : "Playback drift vs the host — click to resync"
+          }
+          onClick={() => (syncFresh ? resyncNow() : requestResync())}
         >
-          {drift < 0.5 ? "in sync" : `±${drift < 10 ? drift.toFixed(1) : `${Math.floor(drift)}+`}s`}
+          {!syncFresh
+            ? "unsynced"
+            : drift !== null && drift < 0.5
+              ? "in sync"
+              : `±${drift !== null && drift < 10 ? drift.toFixed(1) : `${Math.floor(drift ?? 0)}+`}s`}
         </button>
       )}
       <button

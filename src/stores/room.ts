@@ -58,6 +58,13 @@ const reactionOut = new RateLimiter(6, 3000);
 const queueAddOut = new RateLimiter(6, 60_000);
 const resyncOut = new RateLimiter(6, 10_000);
 const voteOut = new RateLimiter(10, 10_000);
+// Host: cap snapshot-persistence on sync-requests (each one bumps
+// queue_version) so a room full of periodic re-checks can't spam writes.
+const syncPubGap = new MinGap(10_000);
+/** The drift chip may claim room truth only with a corroboration this fresh. */
+const SYNC_FRESH_MS = 45_000;
+/** Non-hosts re-verify against the room every 6 drift ticks (30s). */
+const SYNC_REQ_EVERY_TICKS = 6;
 
 // Receiver-side budgets: drop other clients' excess on arrival. These defend
 // against modified clients that skip the sender-side guards above.
@@ -121,6 +128,7 @@ let localLoadedVideoId: string | null = null;
 let upNextTimer: ReturnType<typeof setTimeout> | null = null;
 let channelUnsubscribe: (() => void) | null = null;
 let driftTimer: ReturnType<typeof setInterval> | null = null;
+let syncReqTick = 0;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let presenceChannel: { track: (p: Record<string, unknown>) => Promise<string> } | null = null;
 let presenceJoinedAt = 0;
@@ -163,6 +171,8 @@ interface RoomState {
   grantedTo: string[];
   pendingControl: { fromId: string; name: string; ts: number } | null;
   drift: number | null;
+  /** Host, or a remote answer/row arrived recently — drift reflects room truth. */
+  syncFresh: boolean;
   floating: FloatingReaction[];
   toasts: ToastItem[];
   typing: Record<string, { name: string; at: number }>;
@@ -189,6 +199,7 @@ interface RoomState {
   loadVideo(input: string): Promise<boolean>;
   ensureTitle(videoId: string): void;
   resyncNow(): void;
+  requestResync(): void;
   sendChat(text: string): void;
   deleteChatMessage(id: string): Promise<void>;
   reactToMessage(messageId: string, emoji: string): Promise<void>;
@@ -309,12 +320,19 @@ export const useRoom = create<RoomState>((set, get) => {
       if (!s.videoId || s.videoId !== videoId) return;
       if (localLoadedVideoId === videoId) return;
       if (playerAdapter?.isPlaying()) return;
+      // A fresh remote answer (host online) already defined our state for
+      // this video — cue the player from THAT, not from the persisted row,
+      // which can be stale (e.g. a phantom-play write that still says
+      // playing:true and autoplays the joiner past the parked host).
+      const ref = engine?.getLocalRef();
+      const remoteFresh =
+        !!ref && ref.videoId === videoId && !!engine?.hasAuthoritativeSync(8000);
       if (playerAdapter?.ready()) {
         localLoadedVideoId = videoId;
-        const start = resumeStartSeconds(videoId);
-        const resumePlaying = resumeShouldAutoplay(videoId);
-        playerAdapter.load(videoId, start, resumePlaying);
-        engine?.applyLoadedState({ videoId, time: start, playing: resumePlaying });
+        const start = remoteFresh ? ref.time : resumeStartSeconds(videoId);
+        const autoplay = remoteFresh ? ref.playing : resumeShouldAutoplay(videoId);
+        playerAdapter.load(videoId, start, autoplay);
+        engine?.applyLoadedState({ videoId, time: start, playing: autoplay });
         return;
       }
       if (++tries < 20) selfSyncTimer = setTimeout(attempt, 500);
@@ -561,8 +579,12 @@ export const useRoom = create<RoomState>((set, get) => {
 
     t.on("snapshot", (payload) => applySnapshot(payload as RoomSnapshot));
 
-    t.on("sync-request", () => {
+    t.on("sync-request", (payload) => {
+      const p = payload as { senderId?: string } | null;
+      // REST-fallback sends are echoed back — never publish for our own request.
+      if (p?.senderId && p.senderId === selfProfile?.id) return;
       if (selfProfile?.id === get().hostId) {
+        if (!syncPubGap.allow("sync-pub")) return;
         setTimeout(
           () => publishSnapshot(),
           60 + Math.random() * 200,
@@ -831,6 +853,7 @@ export const useRoom = create<RoomState>((set, get) => {
     grantedTo: [],
     pendingControl: null,
     drift: null,
+    syncFresh: false,
     floating: [],
     toasts: [],
     typing: {},
@@ -1039,9 +1062,21 @@ export const useRoom = create<RoomState>((set, get) => {
       url.searchParams.set("room", code);
       history.replaceState(null, "", url);
       document.title = `Yappie · ${code}`;
+      syncReqTick = 0;
       driftTimer = setInterval(() => {
         engine?.tick();
-        set({ drift: engine?.getLastDrift() ?? null });
+        set({
+          drift: engine?.getLastDrift() ?? null,
+          syncFresh: engine?.hasAuthoritativeSync(SYNC_FRESH_MS) ?? false,
+        });
+        // Non-hosts re-verify against the room every cycle: a missed answer or
+        // a bad fallback self-heals within 30s instead of diverging forever
+        // while both sides still claim to be in sync.
+        const st = get();
+        if (engine && st.videoId && selfProfile && st.hostId && selfProfile.id !== st.hostId) {
+          syncReqTick = (syncReqTick + 1) % SYNC_REQ_EVERY_TICKS;
+          if (syncReqTick === 0) engine.requestSync();
+        }
       }, 5000);
       void heartbeatRpc(code);
       heartbeatTimer = setInterval(() => void heartbeatRpc(code), HEARTBEAT_MS);
@@ -1091,6 +1126,7 @@ export const useRoom = create<RoomState>((set, get) => {
         grantedTo: [],
         pendingControl: null,
         drift: null,
+        syncFresh: false,
         floating: [],
         typing: {},
         upNext: null,
@@ -1136,7 +1172,9 @@ export const useRoom = create<RoomState>((set, get) => {
     seekTo(time) {
       if (!get().videoId) return;
       engine?.localSeek(time);
-      persistPlayback({ force: true });
+      // Persist the SEEKED position: currentPlayback() reads the pre-seek
+      // adapter time, which used to overwrite the row with a stale position.
+      persistPlayback({ force: true, time });
     },
 
     /**
@@ -1155,6 +1193,12 @@ export const useRoom = create<RoomState>((set, get) => {
       if (ref.playing && !playerAdapter.isPlaying()) playerAdapter.play();
       else if (!ref.playing && playerAdapter.isPlaying()) playerAdapter.pause();
       set({ drift: 0 });
+    },
+
+    /** Chip click while unsynced: ask the room for a fresh authoritative answer. */
+    requestResync() {
+      engine?.requestSync();
+      scheduleSelfSyncFallback(get().videoId);
     },
 
     ensureTitle,
@@ -1677,21 +1721,50 @@ function currentPlayback(): PlaybackPosition | null {
  * resumes where everyone stopped instead of restarting at 0. RLS rejects
  * non-host writes (saveRoomSettings returns false — silently ignored here).
  */
-function persistPlayback(opts?: { force?: boolean }): void {
+function persistPlayback(opts?: { force?: boolean; time?: number }): void {
   const s = useRoom.getState();
   if (!s.code || !selfProfile || s.hostId !== selfProfile.id) return;
   const now = Date.now();
   if (!opts?.force && now - lastPlaybackPersistAt < PLAYBACK_PERSIST_MIN_GAP) return;
   const pos = currentPlayback();
   if (!pos) return;
+  const playback = typeof opts?.time === "number" && Number.isFinite(opts.time)
+    ? { ...pos, time: opts.time }
+    : pos;
   lastPlaybackPersistAt = now;
-  resumeRef = pos;
-  void saveRoomSettings(s.code, { playback: pos });
+  resumeRef = playback;
+  void saveRoomSettings(s.code, { playback });
 }
 
-/** pagehide flush: write the position immediately, ignoring the min gap. */
+/**
+ * pagehide flush: a keepalive'd direct fetch that fires synchronously in the
+ * event handler. The saveRoomSettings path chained promise callbacks first —
+ * teardown aborted the chain before the fetch ever started, so the final
+ * position never landed and a refresh resumed at the stale pre-pause time.
+ */
 function flushPlaybackNow(): void {
-  persistPlayback({ force: true });
+  const s = useRoom.getState();
+  if (!s.code || !selfProfile || s.hostId !== selfProfile.id) return;
+  const pos = currentPlayback();
+  if (!pos) return;
+  lastPlaybackPersistAt = Date.now();
+  resumeRef = pos;
+  try {
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/rooms?id=eq.${encodeURIComponent(s.code)}&select=id`;
+    void fetch(url, {
+      method: "PATCH",
+      keepalive: true,
+      headers: {
+        "Content-Type": "application/json",
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ playback: pos }),
+    }).catch(() => {});
+  } catch {
+    /* never throw during pagehide */
+  }
 }
 
 export function isHostNow(): boolean {

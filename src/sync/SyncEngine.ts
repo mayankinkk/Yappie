@@ -63,6 +63,8 @@ export class SyncEngine {
   private opts: SyncEngineOptions;
   private localRef: PlaybackPayload = { videoId: "", time: 0, playing: false, sentAt: 0 };
   private lastDrift: number | null = null;
+  /** When a remote answer/row last corroborated our baseline (see hasAuthoritativeSync). */
+  private lastRemoteAt = 0;
   /** Newest applied sentAt per sender — see isStale(). */
   private lastAppliedFrom: Record<string, number> = {};
   private applying = false;
@@ -95,7 +97,7 @@ export class SyncEngine {
     const handlers: Record<string, (payload: unknown) => void> = {
       control: (p) => this.applyControl(p),
       snapshot: (p) => this.applySnapshot(p),
-      "sync-request": () => this.respondToSyncRequest(),
+      "sync-request": (p) => this.respondToSyncRequest(p as { senderId?: string } | null),
       "control-request": (p) => {
         const payload = p as { senderName?: string; senderId?: string } | null;
         const name = payload?.senderName || "Someone";
@@ -110,6 +112,7 @@ export class SyncEngine {
     this.started = false;
     this.pendingRemote = null;
     this.lastAppliedFrom = {};
+    this.lastRemoteAt = 0;
     if (this.applyTimer) clearTimeout(this.applyTimer);
     if (this.outTimer) clearTimeout(this.outTimer);
     this.outTimer = null;
@@ -154,10 +157,15 @@ export class SyncEngine {
     return true;
   }
 
-  private broadcast(action: ControlPayload["action"], notify: boolean): void {
+  private broadcast(action: ControlPayload["action"], notify: boolean, explicitTime?: number): void {
     const videoId = this.opts.getVideoId();
     if (!videoId) return;
-    const time = this.opts.player.ready() ? this.opts.player.getTime() : this.localRef.time;
+    const time =
+      explicitTime !== undefined
+        ? explicitTime
+        : this.opts.player.ready()
+          ? this.opts.player.getTime()
+          : this.localRef.time;
     // playVideo()/pauseVideo() apply asynchronously (state can still be CUED
     // or BUFFERING right after a fresh load), so trust the user's intent for
     // play/pause instead of the not-yet-updated player state.
@@ -246,7 +254,10 @@ export class SyncEngine {
     if (!this.assertControl()) return;
     if (!this.opts.getVideoId()) return;
     this.opts.player.seek(time);
-    this.broadcast("seek", true);
+    // Pass the TARGET: player.getTime() still reports the pre-seek position
+    // while YT processes seekTo asynchronously — a pause a beat later used
+    // to capture that stale 31.3s and broadcast it as room truth.
+    this.broadcast("seek", true, time);
   }
 
   localLoad(videoId: string, autoplay = true): void {
@@ -270,12 +281,13 @@ export class SyncEngine {
 
   applyLoadedState(target: PlaybackTarget): void {
     this.localRef = { ...target, sentAt: nowMs() };
+    this.lastRemoteAt = nowMs();
     this.opts.onLocalState(target);
   }
 
   requestSync(): void {
     if (!this.syncReqGap.allow("sync-request")) return;
-    void this.opts.transport.send("sync-request", {});
+    void this.opts.transport.send("sync-request", { senderId: this.opts.getRole().selfId });
   }
 
   sendSnapshot(snapshot: Omit<RoomSnapshot, "sentAt" | "time" | "playing" | "videoId" | "senderId"> & Partial<PlaybackPayload>): void {
@@ -314,6 +326,10 @@ export class SyncEngine {
   applyControl(raw: unknown): void {
     const p = raw as ControlPayload | null;
     if (!p || !p.videoId || typeof p.sentAt !== "number") return;
+    // REST-fallback broadcasts are echoed back to their sender; a client's own
+    // junk (e.g. an answer from a not-yet-loaded player) must never apply.
+    if (p.senderId && p.senderId === this.opts.getRole().selfId) return;
+    if (typeof p.time !== "number" || !Number.isFinite(p.time)) return;
     if (!this.inboundControl.allow(String(p.senderId || "?"))) return;
     if (!this.isTrustedSender(p.senderId)) return;
     if (this.isStale(p.senderId, p.sentAt)) return;
@@ -324,6 +340,8 @@ export class SyncEngine {
     const p = raw as RoomSnapshot | null;
     if (!p || typeof p.sentAt !== "number") return;
     if (!p.videoId) return;
+    if (p.senderId && p.senderId === this.opts.getRole().selfId) return;
+    if (typeof p.time !== "number" || !Number.isFinite(p.time)) return;
     if (!this.isTrustedSender(p.senderId)) return;
     if (this.isStale(p.senderId, p.sentAt)) return;
     this.applyPayload(p, "");
@@ -358,6 +376,7 @@ export class SyncEngine {
     }
 
     this.localRef = { videoId: p.videoId, time: target, playing: p.playing, sentAt: nowMs() };
+    this.lastRemoteAt = nowMs();
     this.opts.onLocalState({ videoId: p.videoId, time: target, playing: p.playing });
 
     if (notifyFrom) {
@@ -377,10 +396,17 @@ export class SyncEngine {
     this.applyPayload(payload, notifyFrom);
   }
 
-  private respondToSyncRequest(): void {
+  private respondToSyncRequest(payload?: { senderId?: string } | null): void {
     if (!this.started || !this.syncRespondGap.allow("respond")) return;
+    const { selfId } = this.opts.getRole();
+    // Self-echo: REST-fallback sends come back to us — never answer ourselves.
+    if (payload?.senderId && payload.senderId === selfId) return;
     const videoId = this.opts.getVideoId();
     if (!videoId) return;
+    // Only answer with state we have actually loaded: a joiner whose player
+    // hasn't cued the room video yet has nothing truthful to say, and its
+    // empty answer used to seek everyone else to 0.
+    if (this.localRef.videoId !== videoId) return;
     setTimeout(
       () => {
         const current = this.opts.getVideoId();
@@ -420,7 +446,36 @@ export class SyncEngine {
       this.lastDrift = Math.abs(this.opts.player.getTime() - expected);
     }
     if (!this.localRef.playing) {
+      // The reverse phantom: intent says paused but the player is actually
+      // running (blocked-autoplay toggle races, YT resuming after a gesture).
+      // Without this the tab keeps advancing while everyone believes the room
+      // is paused — persisted rows, sync answers, and the drift chip all lie.
+      if (this.opts.player.isPlaying()) {
+        if (!this.blockSince) {
+          this.blockSince = now;
+          return;
+        }
+        if (now - this.blockSince < 3000) return;
+        this.blockSince = 0;
+        this.opts.player.pause();
+        // Rebase to where the player actually ended up: leaving localRef at
+        // the pre-phantom time made the paused-position correction below
+        // seek everyone backwards.
+        const time = this.opts.player.getTime();
+        this.localRef = { ...this.localRef, time, playing: false, sentAt: now };
+        this.opts.onLocalState({ videoId: this.localRef.videoId, time, playing: false });
+        return;
+      }
       this.blockSince = 0;
+      // Cue/load quantization (a resume at 130.68s landing at 131.0s) shows
+      // a permanent fake drift otherwise. Only correct SMALL drifts: a large
+      // gap while paused means a stale baseline, and rewinding the player
+      // that far would be worse than showing the drift.
+      const actual = this.opts.player.getTime();
+      const pausedDrift = Math.abs(actual - this.localRef.time);
+      if (pausedDrift > 0.35 && pausedDrift < 2) {
+        this.opts.player.seek(this.localRef.time);
+      }
       return;
     }
     if (!this.opts.player.isPlaying()) {
@@ -461,6 +516,17 @@ export class SyncEngine {
   /** Seconds between our playback position and the host's expected position. */
   getLastDrift(): number | null {
     return this.lastDrift;
+  }
+
+  /**
+   * Whether our baseline can be trusted as room truth: we are the host (we
+   * define the room state), or a remote answer/row arrived within maxAgeMs.
+   * A client whose local state never got corroborated must not claim "in sync".
+   */
+  hasAuthoritativeSync(maxAgeMs: number): boolean {
+    const { selfId, hostId } = this.opts.getRole();
+    if (hostId && selfId === hostId) return true;
+    return this.lastRemoteAt > 0 && nowMs() - this.lastRemoteAt <= maxAgeMs;
   }
 
   isApplyingRemote(): boolean {
