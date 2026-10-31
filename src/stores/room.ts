@@ -15,6 +15,7 @@ import { getSupabase, isSupabaseConfigured } from "../lib/supabase";
 import { extractVideoId, fetchVideoTitle } from "../lib/video-id";
 import { rememberRoom } from "../lib/recent";
 import { randomId } from "../lib/ids";
+import { messageMentions } from "../lib/mentions";
 import { playSound } from "../lib/sound";
 import { SyncEngine, computeExpectedTime } from "../sync/SyncEngine";
 import {
@@ -166,6 +167,8 @@ interface RoomState {
   titles: Record<string, string>;
   messages: ChatMessage[];
   unread: number;
+  /** Unread messages that @mention me — a louder badge than plain unread. */
+  mentions: number;
   participants: Participant[];
   members: MembershipRow[];
   grantedTo: string[];
@@ -237,7 +240,12 @@ function pushMessage(
 ): void {
   const messages = [...get().messages, msg];
   if (messages.length > CHAT_TRIM) messages.splice(0, messages.length - CHAT_TRIM);
-  set({ messages, unread: incoming ? get().unread + 1 : get().unread });
+  const mentioned = incoming && messageMentions(msg.text, selfProfile?.name);
+  set({
+    messages,
+    unread: incoming ? get().unread + 1 : get().unread,
+    mentions: mentioned ? get().mentions + 1 : get().mentions,
+  });
   if (incoming) playSound("message");
 }
 
@@ -848,6 +856,7 @@ export const useRoom = create<RoomState>((set, get) => {
     titles: {},
     messages: [],
     unread: 0,
+    mentions: 0,
     participants: [],
     members: [],
     grantedTo: [],
@@ -1047,6 +1056,7 @@ export const useRoom = create<RoomState>((set, get) => {
         playing: false,
         messages: [],
         unread: 0,
+        mentions: 0,
         participants: [],
         members: [],
         floating: [],
@@ -1121,6 +1131,7 @@ export const useRoom = create<RoomState>((set, get) => {
         watched: [],
         messages: [],
         unread: 0,
+        mentions: 0,
         participants: [],
         members: [],
         grantedTo: [],
@@ -1615,7 +1626,7 @@ export const useRoom = create<RoomState>((set, get) => {
     },
 
     markChatRead() {
-      if (get().unread > 0) set({ unread: 0 });
+      if (get().unread > 0 || get().mentions > 0) set({ unread: 0, mentions: 0 });
     },
 
     dismissFailedChat() {

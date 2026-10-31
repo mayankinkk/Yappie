@@ -101,6 +101,7 @@ export default function Room() {
   const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 980px)").matches);
   const [panel, setPanel] = useState<"chat" | "queue" | "people">("chat");
   const unread = useRoom((s) => s.unread);
+  const mentions = useRoom((s) => s.mentions);
   const queueCount = useRoom((s) => s.queue.length);
   const peopleCount = useRoom((s) => s.participants.length);
   const audit = useRoom((s) => s.audit);
@@ -440,7 +441,14 @@ export default function Room() {
                   className={`mobile-tab${panel === "chat" ? " active" : ""}`}
                   onClick={() => setPanel("chat")}
                 >
-                  Chat{unread > 0 && <span className="tab-badge">{unread}</span>}
+                  Chat
+                  {mentions > 0 ? (
+                    <span className="tab-badge mention-badge" title="Messages that @mention you">
+                      @{mentions}
+                    </span>
+                  ) : (
+                    unread > 0 && <span className="tab-badge">{unread}</span>
+                  )}
                 </button>
                 <button
                   type="button"

@@ -1677,6 +1677,14 @@ input[type="range"].volume:disabled {
   border-radius: 999px;
 }
 
+.unread-pill.mention-pill {
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3);
+}
+
+.tab-badge.mention-badge {
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3);
+}
+
 .slow-select {
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -2015,6 +2023,22 @@ input[type="range"].volume:disabled {
 .msg.mine .bubble {
   background: var(--accent-soft);
   border-color: rgba(245, 158, 11, 0.25);
+}
+
+/* @mentions: the named person glows amber; a message aimed at you gets an
+   accented bubble so it stands out from ordinary chatter while scrolling. */
+.mention {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.msg.mentioned .bubble {
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.msg.mention-you .bubble {
+  background: var(--accent-soft);
+  border-color: var(--accent);
 }
 
 .bubble {

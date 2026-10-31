@@ -3,6 +3,7 @@ import { useRoom } from "../stores/room";
 import { useSession } from "../stores/session";
 import { initials, nameHue } from "../lib/ids";
 import { formatClock } from "../lib/time";
+import { messageMentions, splitMentions } from "../lib/mentions";
 
 const EMOJIS = [
   "😀", "😂", "🥹", "😍", "😎", "🤔", "😴", "😭",
@@ -16,6 +17,8 @@ const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥"];
 export default function Chat() {
   const messages = useRoom((s) => s.messages);
   const unread = useRoom((s) => s.unread);
+  const mentions = useRoom((s) => s.mentions);
+  const participants = useRoom((s) => s.participants);
   const sendChat = useRoom((s) => s.sendChat);
   const deleteChatMessage = useRoom((s) => s.deleteChatMessage);
   const reactToMessage = useRoom((s) => s.reactToMessage);
@@ -29,6 +32,7 @@ export default function Chat() {
   const failedChat = useRoom((s) => s.failedChat);
   const dismissFailedChat = useRoom((s) => s.dismissFailedChat);
   const myId = useSession((s) => s.profile?.id);
+  const myName = useSession((s) => s.profile?.name);
   const isHost = !!myId && myId === hostId;
   const [text, setText] = useState("");
   const [tick, setTick] = useState(0);
@@ -150,11 +154,14 @@ export default function Chat() {
   const typingLabel =
     typers.length === 1
       ? `${typers[0].name} is typing…`
-      : typers.length === 2
-        ? `${typers[0].name} and ${typers[1].name} are typing…`
+        : typers.length === 2
+          ? `${typers[0].name} and ${typers[1].name} are typing…`
         : typers.length > 2
           ? `${typers.length} people are typing…`
           : "";
+
+  // Names people can be @mentioned by: everyone present plus me.
+  const mentionNames = participants.map((p) => p.name).concat(myName ? [myName] : []);
 
   return (
     <div className="card chat-card">
@@ -177,7 +184,13 @@ export default function Chat() {
         {!isHost && roomSlowMode > 0 && (
           <span className="slow-label">Slow {roomSlowMode}s</span>
         )}
-        {unread > 0 && <span className="unread-pill">{unread}</span>}
+        {mentions > 0 ? (
+          <span className="unread-pill mention-pill" title="Messages that @mention you">
+            @{mentions}
+          </span>
+        ) : (
+          unread > 0 && <span className="unread-pill">{unread}</span>
+        )}
       </div>
       <div
         className="messages"
@@ -192,62 +205,82 @@ export default function Chat() {
         {messages.map((m) => {
           const hue = m.color ?? nameHue(m.name);
           const mine = m.senderId === myId;
+          const segments = splitMentions(m.text, mentionNames);
+          const hasMention = segments.some((seg) => seg.mention);
+          const hitsYou = !mine && messageMentions(m.text, myName);
           return (
-            <div key={m.id} className={`msg ${mine ? "mine" : ""}`}>
-              <span className={`avatar${m.avatar ? " emoji" : ""}`} style={{ ["--h" as string]: hue }}>
-                {m.avatar || initials(m.name)}
-              </span>
-              <div className="bubble">
-                <div className="msg-meta">
-                  <span className="msg-name" style={{ ["--h" as string]: hue }}>
-                    {m.name}
-                  </span>
-                  <span className="msg-time">{formatClock(m.ts)}</span>
-                  {isHost && (
-                    <button
-                      type="button"
-                      className="msg-delete"
-                      title="Delete message"
-                      aria-label="Delete message"
-                      onClick={() => void deleteChatMessage(m.id)}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-                <div className="msg-text">{m.text}</div>
-                <div className="reactions">
-                  {Object.entries(m.reactions)
-                    .filter(([, ids]) => ids.length > 0)
-                    .map(([emoji, ids]) => (
+            <div
+              key={m.id}
+              className={`msg${mine ? "mine" : ""}${hasMention ? " mentioned" : ""}${
+                hitsYou ? " mention-you" : ""
+              }`}
+            >
+                <span className={`avatar${m.avatar ? " emoji" : ""}`} style={{ ["--h" as string]: hue }}>
+                  {m.avatar || initials(m.name)}
+                </span>
+                <div className="bubble">
+                  <div className="msg-meta">
+                    <span className="msg-name" style={{ ["--h" as string]: hue }}>
+                      {m.name}
+                    </span>
+                    <span className="msg-time">{formatClock(m.ts)}</span>
+                    {isHost && (
                       <button
-                        key={emoji}
                         type="button"
-                        className={`reaction-chip${myId && ids.includes(myId) ? " mine" : ""}`}
-                        title="Toggle reaction"
-                        onClick={() => void reactToMessage(m.id, emoji)}
+                        className="msg-delete"
+                        title="Delete message"
+                        aria-label="Delete message"
+                        onClick={() => void deleteChatMessage(m.id)}
                       >
-                        <span className="reaction-emoji">{emoji}</span>
-                        <span className="reaction-count">{ids.length}</span>
+                        ✕
                       </button>
-                    ))}
-                  <span className="reaction-add">
-                    {QUICK_REACTIONS.map((e) => (
-                      <button
-                        key={e}
-                        type="button"
-                        className="reaction-quick"
-                        title={`React with ${e}`}
-                        onClick={() => void reactToMessage(m.id, e)}
-                      >
-                        {e}
-                      </button>
-                    ))}
-                  </span>
+                    )}
+                  </div>
+                  <div className="msg-text">
+                    {hasMention
+                      ? segments.map((seg, i) =>
+                          seg.mention ? (
+                            <span key={i} className="mention">
+                              {seg.text}
+                            </span>
+                          ) : (
+                            <span key={i}>{seg.text}</span>
+                          ),
+                        )
+                      : m.text}
+                  </div>
+                  <div className="reactions">
+                    {Object.entries(m.reactions)
+                      .filter(([, ids]) => ids.length > 0)
+                      .map(([emoji, ids]) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          className={`reaction-chip${myId && ids.includes(myId) ? " mine" : ""}`}
+                          title="Toggle reaction"
+                          onClick={() => void reactToMessage(m.id, emoji)}
+                        >
+                          <span className="reaction-emoji">{emoji}</span>
+                          <span className="reaction-count">{ids.length}</span>
+                        </button>
+                      ))}
+                    <span className="reaction-add">
+                      {QUICK_REACTIONS.map((e) => (
+                        <button
+                          key={e}
+                          type="button"
+                          className="reaction-quick"
+                          title={`React with ${e}`}
+                          onClick={() => void reactToMessage(m.id, e)}
+                        >
+                          {e}
+                        </button>
+                      ))}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
-          );
+            );
         })}
       </div>
       {typingLabel && (
