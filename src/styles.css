@@ -2879,3 +2879,22 @@ button.moment-jump:hover {
     transform: none;
   }
 }
+
+/* Sync state stays visible on phones (feature 10): the controls-bar chip is
+   display:none at this width, so the stage-meta drift pill carries sync state
+   alone — compact version, with the redundant "Synced · …" line dropped only
+   when a video is actually up (the "Waiting for a video…" line stays). */
+@media (max-width: 520px) {
+  .stage-meta {
+    gap: 8px;
+  }
+
+  .play-state.has-video {
+    display: none;
+  }
+
+  .sync-pill {
+    padding: 2px 7px;
+    font-size: 0.68rem;
+  }
+}

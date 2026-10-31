@@ -448,7 +448,7 @@ export default function Room() {
                 {nowTitle}
               </span>
             )}
-            <span>
+            <span className={videoId ? "play-state has-video" : "play-state"}>
               {videoId
                 ? playing
                   ? "Synced · playing"
