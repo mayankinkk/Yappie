@@ -2788,3 +2788,75 @@ button.moment-jump:hover {
 .help-card:focus-visible {
   outline: none;
 }
+
+/* Touch targets (feature 8): 44px floor on every tappable control, scoped
+   to `(pointer: coarse)` so the desktop chrome stays compact. The controls
+   bar keeps its icon widths (a single row can't afford +6px per button) but
+   stretches height, which is where fingers actually miss. */
+@media (pointer: coarse) {
+  .btn.small,
+  .topbar .btn.small,
+  .chat-form .btn.small,
+  .cr-btn,
+  .reaction-quick,
+  .recent-chip,
+  .emoji-btn,
+  .avatar-pick-btn,
+  .mobile-tab,
+  .sound-toggle,
+  .stamp-btn,
+  .outbox-discard,
+  .slow-select,
+  .cc-lang,
+  .field {
+    min-height: 44px;
+  }
+
+  .btn.small,
+  .topbar .btn.small,
+  .cr-btn,
+  .recent-chip {
+    min-width: 44px;
+  }
+
+  .btn.small,
+  .topbar .btn.small {
+    padding: 0 14px;
+  }
+
+  .reaction-quick {
+    width: 44px;
+    font-size: 1rem;
+  }
+
+  .emoji-btn {
+    width: 44px;
+  }
+
+  .ctrl-btn {
+    height: 44px;
+    width: 42px;
+  }
+
+  .sound-toggle {
+    min-width: 44px;
+  }
+
+  .cc-lang {
+    height: 44px;
+  }
+
+  .avatar-cell {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* No hover on touch: the host delete affordance is always visible and
+     finger-sized. */
+  .msg-delete {
+    width: 30px;
+    height: 30px;
+    opacity: 1;
+    font-size: 0.85rem;
+  }
+}
