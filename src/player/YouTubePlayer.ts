@@ -1,6 +1,6 @@
 import type { PlayerAdapter, PlayerLocalEvent } from "../types";
 import { needsNativeYoutubeControls } from "../lib/fullscreen";
-import { captionsEnabled } from "../lib/captions";
+import { captionsEnabled, captionLang } from "../lib/captions";
 
 // loadModule/unloadModule exist on the real player but not in @types/youtube.
 type ModuleCapable = YT.Player & {
@@ -50,6 +50,9 @@ export class YouTubePlayer implements PlayerAdapter {
   private muted = false;
   private volume = 100;
   private captions = captionsEnabled();
+  private captionLang = captionLang();
+  /** Recreate-iframe restore: runs once the rebuilt player reports ready. */
+  private pendingLoad: (() => void) | null = null;
   private suppressLoop: number | null = null;
   private suppressStop: number | null = null;
   private destroyed = false;
@@ -115,6 +118,11 @@ export class YouTubePlayer implements PlayerAdapter {
         playsinline: 1,
         iv_load_policy: 3,
         disablekb: 1,
+        // Room-wide caption language (0019): steers the fresh iframe's track.
+        // cc_load_policy only requests the default track on first load; the
+        // local on/off flag keeps authority via the suppress loop.
+        cc_lang_pref: this.captionLang || undefined,
+        cc_load_policy: this.captions ? 1 : undefined,
         origin: location.protocol.startsWith("http") ? location.origin : undefined,
       },
       events: {
@@ -125,6 +133,9 @@ export class YouTubePlayer implements PlayerAdapter {
           this.api()?.setVolume(this.volume);
           if (!this.captions) this.startSuppressLoop();
           this.cb?.({ type: "ready" });
+          const restore = this.pendingLoad;
+          this.pendingLoad = null;
+          if (restore) restore();
         },
         onStateChange: (e) => {
           if (this.destroyed) return;
@@ -211,12 +222,62 @@ export class YouTubePlayer implements PlayerAdapter {
     }
   }
 
+  /**
+   * Room-wide caption track (0019). The embed only reads cc_lang_pref when
+   * the iframe is created, and setOption("captions", "track") can't reliably
+   * clear back to Auto — so a real change rebuilds the iframe in place and
+   * restores the same video/position/state from the engine's baseline.
+   */
+  setCaptionLanguage(lang: string | null): void {
+    const clean = lang || null;
+    if (this.captionLang === clean) return;
+    this.captionLang = clean;
+    const p = this.api();
+    if (!p || !this.readyState || this.destroyed) return; // next init() picks the value up
+    const wasPlaying = p.getPlayerState() === YT.PlayerState.PLAYING;
+    const time = p.getCurrentTime() || 0;
+    const videoId = this.currentVideoId;
+    try {
+      p.destroy();
+    } catch {
+      /* already gone */
+    }
+    this.player = null;
+    this.readyState = false;
+    this.stopSuppressLoop();
+    // YT.Player swapped our target for an iframe — rebuild inside whatever
+    // node is still in the document (the original host when it survived,
+    // otherwise its parent).
+    const container = this.host.parentElement ?? this.host;
+    container.innerHTML = "";
+    const next = document.createElement("div");
+    container.appendChild(next);
+    this.host = next;
+    const restore = () => {
+      if (videoId) this.load(videoId, time, wasPlaying);
+    };
+    this.pendingLoad = restore;
+    void this.init().then((ok) => {
+      if (!ok) {
+        this.pendingLoad = null;
+        return;
+      }
+      if (this.readyState) {
+        const r = this.pendingLoad;
+        this.pendingLoad = null;
+        r?.();
+      }
+      // else: onReady runs the pending restore the moment the iframe binds
+    });
+  }
+
   getCurrentVideoId(): string | null {
     return this.currentVideoId;
   }
 
   destroy(): void {
     this.destroyed = true;
+    this.pendingLoad = null;
     this.stopSuppressLoop();
     try {
       this.player?.destroy();

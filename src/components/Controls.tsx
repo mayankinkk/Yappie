@@ -4,7 +4,7 @@ import { useRoom } from "../stores/room";
 import { useSession } from "../stores/session";
 import { formatTime, clamp } from "../lib/time";
 import { toggleCinemaFullscreen, activeFullscreenElement } from "../lib/fullscreen";
-import { captionsEnabled, setCaptionsEnabled } from "../lib/captions";
+import { captionsEnabled, setCaptionsEnabled, CAPTION_LANGUAGES } from "../lib/captions";
 
 interface Props {
   player: YouTubePlayer | null;
@@ -28,6 +28,8 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
   const syncFresh = useRoom((s) => s.syncFresh);
   const resyncNow = useRoom((s) => s.resyncNow);
   const requestResync = useRoom((s) => s.requestResync);
+  const captionsLang = useRoom((s) => s.captionsLang);
+  const setCaptionsLang = useRoom((s) => s.setCaptionsLang);
   const profile = useSession((s) => s.profile);
   const canControl =
     !!profile && (profile.id === hostId || guestsCanControl || grantedTo.includes(profile.id));
@@ -341,6 +343,24 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
           />
         </svg>
       </button>
+      <select
+        className={`cc-lang${captionsLang ? " set" : ""}`}
+        value={captionsLang ?? ""}
+        disabled={!isHost}
+        title={
+          isHost
+            ? "Caption language — everyone in the room sees this track"
+            : "Only the host can change the room's caption language"
+        }
+        aria-label="Caption language (room-wide)"
+        onChange={(e) => void setCaptionsLang(e.target.value || null)}
+      >
+        {CAPTION_LANGUAGES.map((l) => (
+          <option key={l.code || "auto"} value={l.code}>
+            {l.label}
+          </option>
+        ))}
+      </select>
       <button className="ctrl-btn" title="Fullscreen (F)" disabled={disabled} onClick={toggleFullscreen}>
         <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg>
       </button>

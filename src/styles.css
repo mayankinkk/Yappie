@@ -1200,6 +1200,37 @@ a {
   cursor: not-allowed;
 }
 
+/* Room-wide caption language (0019) — sits beside the CC toggle. */
+.cc-lang {
+  height: 38px;
+  max-width: 122px;
+  padding: 0 8px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.cc-lang:hover:not(:disabled) {
+  background: #2f2a25;
+  color: var(--text);
+}
+
+.cc-lang.set {
+  color: var(--accent);
+  border-color: rgba(245, 158, 11, 0.4);
+  background: var(--accent-soft);
+}
+
+.cc-lang:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .ctrl-btn.help-btn {
   font-weight: 750;
   font-size: 0.95rem;

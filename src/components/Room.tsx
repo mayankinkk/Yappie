@@ -113,6 +113,7 @@ export default function Room() {
   const maxMembers = useRoom((s) => s.maxMembers);
   const pendingJoins = useRoom((s) => s.pendingJoins);
   const respondJoin = useRoom((s) => s.respondJoin);
+  const captionsLang = useRoom((s) => s.captionsLang);
   // iOS/iPadOS: hand the chrome to YouTube so its fullscreen button can use
   // the native (landscape) video player — see needsNativeYoutubeControls().
   const ytNative = needsNativeYoutubeControls();
@@ -210,6 +211,12 @@ export default function Room() {
   useEffect(() => {
     if (videoId) ensureTitle(videoId);
   }, [videoId, ensureTitle]);
+
+  // Room-wide caption track (0019): steer the embed when the host changes it
+  // (no-op while mounting — the player reads the same cached value itself).
+  useEffect(() => {
+    player?.setCaptionLanguage(captionsLang);
+  }, [player, captionsLang]);
 
   useEffect(() => {
     const goOffline = () => {

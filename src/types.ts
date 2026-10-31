@@ -116,6 +116,8 @@ export interface PlayerAdapter {
   setMuted(muted: boolean): void;
   setVolume(volume: number): void;
   setCaptionsEnabled(on: boolean): void;
+  /** Room-wide caption track (0019). null = Auto; implementations may rebuild the embed to apply it. */
+  setCaptionLanguage?(lang: string | null): void;
   destroy(): void;
   onLocalEvent(cb: (e: PlayerLocalEvent) => void): void;
 }

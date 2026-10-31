@@ -16,6 +16,7 @@ import { extractVideoId, fetchVideoTitle } from "../lib/video-id";
 import { rememberRoom } from "../lib/recent";
 import { randomId } from "../lib/ids";
 import { messageMentions } from "../lib/mentions";
+import { setCaptionLangCache } from "../lib/captions";
 import { playSound } from "../lib/sound";
 import { SyncEngine, computeExpectedTime } from "../sync/SyncEngine";
 import {
@@ -218,6 +219,8 @@ interface RoomState {
   roomTopic: string | null;
   maxMembers: number | null;
   requireApproval: boolean;
+  /** Room-wide caption track (0019): null = Auto/video default. */
+  captionsLang: string | null;
   /** Host: strangers waiting to be let in. */
   pendingJoins: JoinRequest[];
   /** Guest: join_room refused us pending the host's decision. */
@@ -269,6 +272,7 @@ interface RoomState {
   }): Promise<void>;
   respondJoin(userId: string, approved: boolean): Promise<void>;
   cancelApproval(): void;
+  setCaptionsLang(lang: string | null): Promise<void>;
   requestControl(): void;
   markChatRead(): void;
   dismissFailedChat(): void;
@@ -368,6 +372,11 @@ export const useRoom = create<RoomState>((set, get) => {
       maxMembers: typeof row.max_members === "number" ? row.max_members : null,
       requireApproval: !!row.require_approval,
     };
+    if (row.captions_lang !== undefined) {
+      const lang = row.captions_lang || null;
+      next.captionsLang = lang;
+      setCaptionLangCache(lang);
+    }
     // Only adopt a queue that is genuinely newer: queue_version changes if
     // and only if the content changes, so an equal version keeps the same
     // array reference — playback-only room writes (every ~10s) then no
@@ -1103,6 +1112,7 @@ export const useRoom = create<RoomState>((set, get) => {
     roomTopic: null,
     maxMembers: null,
     requireApproval: false,
+    captionsLang: null,
     pendingJoins: [],
     awaitingApproval: false,
 
@@ -1260,6 +1270,7 @@ export const useRoom = create<RoomState>((set, get) => {
         topic: null as string | null,
         maxMembers: null as number | null,
         requireApproval: false,
+        captionsLang: null as string | null,
       };
       const supabase = getSupabase();
       if (supabase) {
@@ -1288,7 +1299,7 @@ export const useRoom = create<RoomState>((set, get) => {
         try {
           const res = await supabase
             .from("rooms")
-            .select("name, topic, max_members, require_approval")
+            .select("name, topic, max_members, require_approval, captions_lang")
             .eq("code", code)
             .maybeSingle();
           const r = res?.data;
@@ -1298,10 +1309,13 @@ export const useRoom = create<RoomState>((set, get) => {
               topic: r.topic ?? null,
               maxMembers: typeof r.max_members === "number" ? r.max_members : null,
               requireApproval: !!r.require_approval,
+              captionsLang: typeof r.captions_lang === "string" ? r.captions_lang || null : null,
             };
+            // Seed the embed's cc_lang_pref before Room ever mounts the player.
+            setCaptionLangCache(roomMeta.captionsLang);
           }
         } catch {
-          /* identity is non-essential (columns land with 0017) */
+          /* identity is non-essential (columns land with 0017/0019) */
         }
       }
       resumeRef = playback;
@@ -1336,6 +1350,7 @@ export const useRoom = create<RoomState>((set, get) => {
         roomTopic: roomMeta.topic,
         maxMembers: roomMeta.maxMembers,
         requireApproval: roomMeta.requireApproval,
+        captionsLang: roomMeta.captionsLang,
         pendingJoins: [],
         awaitingApproval: false,
       });
@@ -1425,6 +1440,7 @@ export const useRoom = create<RoomState>((set, get) => {
         roomTopic: null,
         maxMembers: null,
         requireApproval: false,
+        captionsLang: null,
         pendingJoins: [],
         awaitingApproval: false,
       });
@@ -2018,6 +2034,22 @@ export const useRoom = create<RoomState>((set, get) => {
     cancelApproval() {
       void clearApprovalWait();
       if (get().awaitingApproval) set({ awaitingApproval: false });
+    },
+
+    async setCaptionsLang(lang) {
+      const s = get();
+      const clean = lang || null;
+      if (!s.code || !selfProfile || s.hostId !== selfProfile.id) {
+        get().pushToast("Only the host can change room captions", "error");
+        return;
+      }
+      const ok = await saveRoomSettings(s.code, { captions_lang: clean });
+      if (!ok) {
+        get().pushToast("Only the host can change room captions", "error");
+        return;
+      }
+      setCaptionLangCache(clean);
+      set({ captionsLang: clean });
     },
 
     requestControl() {

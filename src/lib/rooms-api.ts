@@ -31,6 +31,7 @@ export interface RoomRow {
   topic?: string | null;
   max_members?: number | null;
   require_approval?: boolean | null;
+  captions_lang?: string | null;
 }
 
 export interface QueueRow {
@@ -353,6 +354,7 @@ export async function saveRoomSettings(
     topic?: string | null;
     max_members?: number | null;
     require_approval?: boolean;
+    captions_lang?: string | null;
   },
 ): Promise<boolean> {
   const supabase = getSupabase();
