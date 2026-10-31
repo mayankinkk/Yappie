@@ -23,6 +23,9 @@ export interface ChatMessage {
   text: string;
   ts: number;
   reactions: Record<string, string[]>;
+  /** Playback position the message was stamped with ("watch this moment"). */
+  videoId?: string | null;
+  videoTs?: number | null;
 }
 
 export interface QueueItem {

@@ -65,6 +65,8 @@ export interface ChatRow {
   text: string;
   created_at: string;
   reactions?: Record<string, string[]> | null;
+  video_id?: string | null;
+  video_ts?: number | null;
 }
 
 export interface AuditRow {

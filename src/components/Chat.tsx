@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useRoom } from "../stores/room";
+import { useRoom, canControlNow } from "../stores/room";
 import { useSession } from "../stores/session";
 import { initials, nameHue } from "../lib/ids";
-import { formatClock } from "../lib/time";
+import { formatClock, formatTime } from "../lib/time";
 import { messageMentions, splitMentions } from "../lib/mentions";
 
 const EMOJIS = [
@@ -33,12 +33,18 @@ export default function Chat() {
   const discardOutbox = useRoom((s) => s.discardOutbox);
   const failedChat = useRoom((s) => s.failedChat);
   const dismissFailedChat = useRoom((s) => s.dismissFailedChat);
+  const videoId = useRoom((s) => s.videoId);
+  const currentMoment = useRoom((s) => s.currentMoment);
+  const seekTo = useRoom((s) => s.seekTo);
+  const requestControl = useRoom((s) => s.requestControl);
   const myId = useSession((s) => s.profile?.id);
   const myName = useSession((s) => s.profile?.name);
   const isHost = !!myId && myId === hostId;
   const [text, setText] = useState("");
   const [tick, setTick] = useState(0);
   const [pickerOpen, setPickerOpen] = useState(false);
+  /** "Watch this moment" stamp for the next send — captured at toggle time. */
+  const [stamp, setStamp] = useState<{ videoId: string; ts: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -123,8 +129,9 @@ export default function Chat() {
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!text.trim()) return;
-    sendChat(text);
+    sendChat(text, stamp ?? undefined);
     setText("");
+    setStamp(null);
     saveDraft("");
     setTyping(false);
     const el = listRef.current;
@@ -226,6 +233,28 @@ export default function Chat() {
                       {m.name}
                     </span>
                     <span className="msg-time">{formatClock(m.ts)}</span>
+                    {typeof m.videoTs === "number" && m.videoId && (
+                      (m.videoId === videoId ? (
+                        <button
+                          type="button"
+                          className="moment-jump"
+                          title={`Jump to ${formatTime(m.videoTs)} — watch this moment`}
+                          onClick={() => {
+                            if (canControlNow()) seekTo(m.videoTs!);
+                            else requestControl();
+                          }}
+                        >
+                          ▶ {formatTime(m.videoTs)}
+                        </button>
+                      ) : (
+                        <span
+                          className="moment-jump stale"
+                          title="A different video was playing when this was sent"
+                        >
+                          ▶ {formatTime(m.videoTs)}
+                        </span>
+                      ))
+                    )}
                     {isHost && (
                       <button
                         type="button"
@@ -306,6 +335,20 @@ export default function Chat() {
           </button>
         </div>
       )}
+      {stamp && (
+        <div className="stamp-line" role="status">
+          <button
+            type="button"
+            className="stamp-chip"
+            title="Stamped with the current moment — click to remove"
+            onClick={() => setStamp(null)}
+          >
+            ▶ {formatTime(stamp.ts)}
+            <span aria-hidden="true">✕</span>
+          </button>
+          <span className="stamp-note">watch this moment</span>
+        </div>
+      )}
       <form className="chat-form" onSubmit={submit}>
         <div className="emoji-wrap" ref={pickerRef}>
           <button
@@ -334,6 +377,22 @@ export default function Chat() {
             </div>
           )}
         </div>
+        {videoId && (
+          <button
+            type="button"
+            className={`emoji-btn stamp-btn${stamp ? " on" : ""}`}
+            title={
+              stamp
+                ? "Stamped with the current moment — click to remove"
+                : "Stamp this message with the current moment"
+            }
+            aria-label="Stamp current moment"
+            aria-pressed={!!stamp}
+            onClick={() => setStamp((prev) => (prev ? null : currentMoment()))}
+          >
+            ⏱
+          </button>
+        )}
         <input
           ref={inputRef}
           className="field"

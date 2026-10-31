@@ -100,6 +100,12 @@ export interface JoinRequest {
   ts: number;
 }
 
+/** A chat message held while offline — keeps its "watch this moment" stamp. */
+export interface OutboxEntry {
+  text: string;
+  moment?: { videoId: string; ts: number } | null;
+}
+
 function rowToChat(row: ChatRow): ChatMessage {
   return {
     id: clampText(row.id, 64) || randomId(),
@@ -109,6 +115,8 @@ function rowToChat(row: ChatRow): ChatMessage {
     avatar: clampText(row.avatar || "", 8),
     text: clampText(row.text, 500),
     ts: Date.parse(row.created_at) || Date.now(),
+    videoId: row.video_id ? clampText(row.video_id, 32) : null,
+    videoTs: typeof row.video_ts === "number" && row.video_ts >= 0 ? row.video_ts : null,
     reactions:
       row.reactions && typeof row.reactions === "object"
         ? Object.fromEntries(
@@ -204,7 +212,7 @@ interface RoomState {
   /** Last chat text whose insert failed — restored into the composer. */
   failedChat: { text: string; nonce: number } | null;
   /** Chat typed while the channel was down — flushed on reconnect. */
-  outbox: string[];
+  outbox: OutboxEntry[];
   /** Room identity + admission (0017): name/topic, participant cap, approval. */
   roomName: string | null;
   roomTopic: string | null;
@@ -234,7 +242,8 @@ interface RoomState {
   ensureTitle(videoId: string): void;
   resyncNow(): void;
   requestResync(): void;
-  sendChat(text: string): void;
+  sendChat(text: string, moment?: { videoId: string; ts: number }): void;
+  currentMoment(): { videoId: string; ts: number } | null;
   flushOutbox(): Promise<void>;
   discardOutbox(): void;
   reconnect(): Promise<void>;
@@ -1025,6 +1034,8 @@ export const useRoom = create<RoomState>((set, get) => {
         color: msg.color,
         avatar: msg.avatar,
         text: msg.text,
+        video_id: msg.videoId ?? null,
+        video_ts: msg.videoTs ?? null,
       });
       if (!error) {
         // The realtime INSERT can beat this HTTP response — only echo if
@@ -1512,7 +1523,7 @@ export const useRoom = create<RoomState>((set, get) => {
       return true;
     },
 
-    sendChat(text) {
+    sendChat(text, moment) {
       const profile = selfProfile;
       const s = get();
       const supabase = getSupabase();
@@ -1530,7 +1541,7 @@ export const useRoom = create<RoomState>((set, get) => {
       // Offline or channel down: hold the message instead of failing it —
       // flushOutbox() delivers it the moment a subscribe succeeds again.
       if (get().connection !== "connected" || (typeof navigator !== "undefined" && !navigator.onLine)) {
-        set({ outbox: [...get().outbox, clean].slice(-OUTBOX_MAX) });
+        set({ outbox: [...get().outbox, { text: clean, moment }].slice(-OUTBOX_MAX) });
         get().pushToast("Offline — message queued, sends when reconnected");
         return;
       }
@@ -1562,9 +1573,18 @@ export const useRoom = create<RoomState>((set, get) => {
         avatar: profile.avatar || "",
         text: clean,
         ts: Date.now(),
+        videoId: moment?.videoId ?? null,
+        videoTs: typeof moment?.ts === "number" ? Math.max(0, Math.floor(moment.ts)) : null,
         reactions: {},
       };
       void deliverChat(msg, s.code, true);
+    },
+
+    /** The playback position to stamp a chat message with ("watch this moment"). */
+    currentMoment() {
+      const pos = currentPlayback();
+      if (!pos) return null;
+      return { videoId: pos.videoId, ts: Math.max(0, Math.floor(pos.time)) };
     },
 
     /** Deliver held offline messages in order; stop at the first failure. */
@@ -1576,15 +1596,17 @@ export const useRoom = create<RoomState>((set, get) => {
       outboxFlushing = true;
       try {
         while (get().outbox.length > 0) {
-          const text = get().outbox[0];
+          const entry = get().outbox[0];
           const msg: ChatMessage = {
             id: randomId(),
             senderId: profile.id,
             name: profile.name,
             color: profile.color,
             avatar: profile.avatar || "",
-            text,
+            text: entry.text,
             ts: Date.now(),
+            videoId: entry.moment?.videoId ?? null,
+            videoTs: typeof entry.moment?.ts === "number" ? entry.moment.ts : null,
             reactions: {},
           };
           const ok = await deliverChat(msg, get().code!, false);
