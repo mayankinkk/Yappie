@@ -51,6 +51,8 @@ const HEARTBEAT_MS = 20_000;
 const QUEUE_MAX = 50;
 const WATCHED_MAX = 30;
 const MUTE_DEFAULT_SECONDS = 300;
+/** Offline chat buffer cap — oldest held messages drop past this. */
+const OUTBOX_MAX = 20;
 
 // Sender-side budgets: drop our own excess before it hits the network.
 const chatOut = new RateLimiter(5, 5000);
@@ -127,10 +129,15 @@ let playerAdapter: PlayerAdapter | null = null;
 /** Video id the local player was last told to show (engine or fallback). */
 let localLoadedVideoId: string | null = null;
 let upNextTimer: ReturnType<typeof setTimeout> | null = null;
-let channelUnsubscribe: (() => void) | null = null;
+let channelUnsubscribe: (() => Promise<unknown> | void) | null = null;
 let driftTimer: ReturnType<typeof setInterval> | null = null;
 let syncReqTick = 0;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+/** Manual/automatic reconnect after a channel drop (exponential backoff). */
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectAttempt = 0;
+/** One flush of the offline chat outbox at a time. */
+let outboxFlushing = false;
 let presenceChannel: { track: (p: Record<string, unknown>) => Promise<string> } | null = null;
 let presenceJoinedAt = 0;
 let typingFlag = false;
@@ -183,6 +190,8 @@ interface RoomState {
   audit: AuditEntry[];
   /** Last chat text whose insert failed — restored into the composer. */
   failedChat: { text: string; nonce: number } | null;
+  /** Chat typed while the channel was down — flushed on reconnect. */
+  outbox: string[];
 
   createRoom(profile: Profile, password?: string | null): Promise<void>;
   joinRoom(code: string, profile: Profile, password?: string | null): Promise<void>;
@@ -204,6 +213,9 @@ interface RoomState {
   resyncNow(): void;
   requestResync(): void;
   sendChat(text: string): void;
+  flushOutbox(): Promise<void>;
+  discardOutbox(): void;
+  reconnect(): Promise<void>;
   deleteChatMessage(id: string): Promise<void>;
   reactToMessage(messageId: string, emoji: string): Promise<void>;
   setTyping(active: boolean): void;
@@ -276,6 +288,29 @@ function handlePageHide(): void {
   if (useRoom.getState().code) flushPlaybackNow();
 }
 if (typeof window !== "undefined") window.addEventListener("pagehide", handlePageHide);
+
+function clearReconnectTimer(): void {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
+/**
+ * Exponential backoff after a post-join channel drop: 1s, 2s, 4s … capped at
+ * 30s. The counter resets the moment a subscribe succeeds, so a stable
+ * connection never inherits its predecessor's penalty.
+ */
+function scheduleReconnect(): void {
+  if (reconnectTimer) return;
+  if (!useRoom.getState().code || !isSupabaseConfigured()) return;
+  const delay = Math.min(30_000, 1000 * 2 ** Math.min(reconnectAttempt, 5));
+  reconnectAttempt++;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    void useRoom.getState().reconnect();
+  }, delay);
+}
 
 export const useRoom = create<RoomState>((set, get) => {
   /** Server-authoritative room row → local state (RLS-backed; only ever the real host writes it). */
@@ -805,6 +840,8 @@ export const useRoom = create<RoomState>((set, get) => {
       let settled = false;
       channel.subscribe((status) => {
         if (status === "SUBSCRIBED") {
+          reconnectAttempt = 0;
+          clearReconnectTimer();
           set({ connection: "connected" });
           void channel.track({
             name: profile.name,
@@ -818,6 +855,7 @@ export const useRoom = create<RoomState>((set, get) => {
           void get().loadAudit();
           engine?.requestSync();
           scheduleSelfSyncFallback(get().videoId);
+          void get().flushOutbox();
           if (!settled) {
             settled = true;
             resolve();
@@ -828,17 +866,72 @@ export const useRoom = create<RoomState>((set, get) => {
           if (!settled) {
             settled = true;
             reject(new Error(status));
+          } else {
+            // Post-join drop: keep retrying on our own backoff instead of
+            // leaving a dead room on screen with only a toast for company.
+            scheduleReconnect();
           }
         }
       });
       channelUnsubscribe = () => {
         try {
-          channel.unsubscribe();
+          return channel.unsubscribe();
         } catch {
           /* already left */
         }
       };
     });
+  }
+
+  /**
+   * One chat insert over Postgres, awaiting the server's verdict. `restore`
+   * hands failed text back to the composer (the normal send path); a flush
+   * of the offline outbox leaves the message queued instead so it retries.
+   */
+  async function deliverChat(msg: ChatMessage, code: string, restore: boolean): Promise<boolean> {
+    const supabase = getSupabase();
+    if (!supabase) return false;
+    try {
+      const { error } = await supabase.from("chat_messages").insert({
+        id: msg.id,
+        room_code: code,
+        sender_id: msg.senderId,
+        sender_name: msg.name,
+        color: msg.color,
+        avatar: msg.avatar,
+        text: msg.text,
+      });
+      if (!error) {
+        // The realtime INSERT can beat this HTTP response — only echo if
+        // the websocket path hasn't already delivered the same row.
+        if (!get().messages.some((m) => m.id === msg.id)) pushMessage(set, get, msg, false);
+        return true;
+      }
+      const raw = String(error.message || "");
+      if (raw.includes("chat_rate_limited")) {
+        get().pushToast("You're messaging too fast", "error");
+      } else if (raw.includes("chat_slow_mode")) {
+        // Server-side slow mode (0013) is the authority — the client gate
+        // in sendChat is only a courtesy; surface the server's rejection.
+        const slow = get().roomSlowMode;
+        get().pushToast(
+          slow > 0 ? `Slow mode — wait ${slow}s` : "Slow mode — wait before sending again",
+          "error",
+        );
+      } else if (raw.includes("muted_until")) {
+        get().pushToast("You're muted", "error");
+      } else {
+        get().pushToast("Message not sent", "error");
+      }
+      // Give the text back to the composer so a failed send (or a
+      // refresh mid-insert) never silently eats what the user typed.
+      if (restore) set({ failedChat: { text: msg.text, nonce: Date.now() } });
+      return false;
+    } catch {
+      // Network hiccup mid-insert: same restore contract as a server error.
+      if (restore) set({ failedChat: { text: msg.text, nonce: Date.now() } });
+      return false;
+    }
   }
 
   return {
@@ -869,6 +962,7 @@ export const useRoom = create<RoomState>((set, get) => {
     upNext: null,
     audit: [],
     failedChat: null,
+    outbox: [],
 
     async loadMembers() {
       const s = get();
@@ -1064,6 +1158,7 @@ export const useRoom = create<RoomState>((set, get) => {
         upNext: null,
         audit: [],
         failedChat: null,
+        outbox: [],
       });
       selfProfile = p;
       await connect(code, p);
@@ -1112,6 +1207,8 @@ export const useRoom = create<RoomState>((set, get) => {
       voiceSeeded = false;
       presenceChannel = null;
       presenceJoinedAt = 0;
+      clearReconnectTimer();
+      reconnectAttempt = 0;
       channelUnsubscribe?.();
       channelUnsubscribe = null;
       engine?.destroy();
@@ -1143,6 +1240,7 @@ export const useRoom = create<RoomState>((set, get) => {
         upNext: null,
         audit: [],
         failedChat: null,
+        outbox: [],
       });
       const url = new URL(location.href);
       url.searchParams.delete("room");
@@ -1244,13 +1342,21 @@ export const useRoom = create<RoomState>((set, get) => {
       const s = get();
       const supabase = getSupabase();
       if (!profile || !s.code || !supabase || !text.trim()) return;
+      const clean = text.trim().slice(0, 500);
       const selfMember = s.members.find((m) => m.user_id === profile.id);
       // Blocked sends hand the text back to the composer (submit already
       // cleared it) so nothing typed is ever silently dropped.
-      const restore = () => set({ failedChat: { text: text.trim().slice(0, 500), nonce: Date.now() } });
+      const restore = () => set({ failedChat: { text: clean, nonce: Date.now() } });
       if (isMuted(selfMember)) {
         get().pushToast("You're muted", "error");
         restore();
+        return;
+      }
+      // Offline or channel down: hold the message instead of failing it —
+      // flushOutbox() delivers it the moment a subscribe succeeds again.
+      if (get().connection !== "connected" || (typeof navigator !== "undefined" && !navigator.onLine)) {
+        set({ outbox: [...get().outbox, clean].slice(-OUTBOX_MAX) });
+        get().pushToast("Offline — message queued, sends when reconnected");
         return;
       }
       if (s.roomSlowMode > 0) {
@@ -1279,46 +1385,76 @@ export const useRoom = create<RoomState>((set, get) => {
         name: profile.name,
         color: profile.color,
         avatar: profile.avatar || "",
-        text: text.trim().slice(0, 500),
+        text: clean,
         ts: Date.now(),
         reactions: {},
       };
-      void supabase
-        .from("chat_messages")
-        .insert({
-          id: msg.id,
-          room_code: s.code,
-          sender_id: msg.senderId,
-          sender_name: msg.name,
-          color: msg.color,
-          avatar: msg.avatar,
-          text: msg.text,
-        })
-        .then(({ error }: { error: { message?: string } | null }) => {
-          if (!error) {
-            // The realtime INSERT can beat this HTTP response — only echo if
-            // the websocket path hasn't already delivered the same row.
-            if (!get().messages.some((m) => m.id === msg.id)) pushMessage(set, get, msg, false);
-            return;
-          }
-          if (String(error.message || "").includes("chat_rate_limited")) {
-            get().pushToast("You're messaging too fast", "error");
-          } else if (String(error.message || "").includes("chat_slow_mode")) {
-            // Server-side slow mode (0013) is the authority — the client gate
-            // above is only a courtesy; surface the server's rejection.
-            get().pushToast(
-              s.roomSlowMode > 0 ? `Slow mode — wait ${s.roomSlowMode}s` : "Slow mode — wait before sending again",
-              "error",
-            );
-          } else if (String(error.message || "").includes("muted_until")) {
-            get().pushToast("You're muted", "error");
-          } else {
-            get().pushToast("Message not sent", "error");
-          }
-          // Give the text back to the composer so a failed send (or a
-          // refresh mid-insert) never silently eats what the user typed.
-          set({ failedChat: { text: msg.text, nonce: Date.now() } });
-        });
+      void deliverChat(msg, s.code, true);
+    },
+
+    /** Deliver held offline messages in order; stop at the first failure. */
+    async flushOutbox() {
+      if (outboxFlushing) return;
+      const profile = selfProfile;
+      if (!profile || get().connection !== "connected" || !get().code) return;
+      if (!get().outbox.length) return;
+      outboxFlushing = true;
+      try {
+        while (get().outbox.length > 0) {
+          const text = get().outbox[0];
+          const msg: ChatMessage = {
+            id: randomId(),
+            senderId: profile.id,
+            name: profile.name,
+            color: profile.color,
+            avatar: profile.avatar || "",
+            text,
+            ts: Date.now(),
+            reactions: {},
+          };
+          const ok = await deliverChat(msg, get().code!, false);
+          if (!ok) return; // stays queued — retried on the next reconnect
+          set({ outbox: get().outbox.slice(1) });
+        }
+      } finally {
+        outboxFlushing = false;
+      }
+    },
+
+    discardOutbox() {
+      if (get().outbox.length) set({ outbox: [] });
+    },
+
+    /**
+     * Rebuild the realtime channel in place: local room state (chat, queue,
+     * roster) survives, the dead channel and engine are torn down, and a
+     * fresh connect re-announces presence and re-syncs playback. Called by
+     * the Retry button and by the backoff timer after a channel drop.
+     */
+    async reconnect() {
+      const s = get();
+      const profile = selfProfile;
+      if (!s.code || !profile) return;
+      if (s.connection === "connected") {
+        clearReconnectTimer();
+        return;
+      }
+      if (s.connection === "connecting") return;
+      clearReconnectTimer();
+      set({ connection: "connecting" });
+      channelUnsubscribe?.();
+      channelUnsubscribe = null;
+      engine?.destroy();
+      engine = null;
+      transport = null;
+      try {
+        await connect(s.code, profile);
+      } catch {
+        set({ connection: "error" });
+        scheduleReconnect();
+        return;
+      }
+      void get().flushOutbox();
     },
 
     /**

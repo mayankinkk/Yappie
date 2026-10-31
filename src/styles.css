@@ -1376,6 +1376,20 @@ input[type="range"].volume:disabled {
   border-color: rgba(248, 113, 113, 0.35);
 }
 
+/* The pill becomes an action while the room is down — same visual weight,
+   but obviously clickable (and it clears any pending backoff on press). */
+.conn-retry {
+  font-family: inherit;
+  background: rgba(248, 113, 113, 0.1);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.conn-retry:hover {
+  background: rgba(248, 113, 113, 0.2);
+  border-color: var(--red);
+}
+
 .sound-toggle {
   font-size: 0.95rem;
   opacity: 0.7;
@@ -2221,6 +2235,38 @@ input[type="range"].volume:disabled {
     transform: translateY(-3px);
     opacity: 1;
   }
+}
+
+/* Offline chat buffer: visible, countable, discardable — a queued message is
+   never a silently dropped one. */
+.outbox-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  padding: 5px 12px;
+  font-size: 0.74rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-top: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.outbox-discard {
+  flex: none;
+  background: transparent;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: var(--accent);
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.outbox-discard:hover {
+  background: rgba(245, 158, 11, 0.2);
 }
 
 .chat-form {

@@ -67,6 +67,7 @@ export default function Room() {
   const titles = useRoom((s) => s.titles);
   const ensureTitle = useRoom((s) => s.ensureTitle);
   const pushToast = useRoom((s) => s.pushToast);
+  const reconnect = useRoom((s) => s.reconnect);
   const nowTitle = videoId ? (titles[videoId] ?? null) : null;
 
   // Recognizable tab when partying among many tabs.
@@ -211,6 +212,11 @@ export default function Room() {
     const goOnline = () => {
       setOffline(false);
       pushToast("Back online");
+      // Network back: rebuild a dead channel immediately instead of waiting
+      // out the backoff, and flush anything the offline period queued.
+      const st = useRoom.getState();
+      if (st.code && st.connection === "error") void st.reconnect();
+      else void st.flushOutbox();
     };
     window.addEventListener("offline", goOffline);
     window.addEventListener("online", goOnline);
@@ -402,15 +408,24 @@ export default function Room() {
                 Open on YouTube
               </a>
             )}
-            <span className={`conn-pill conn-${connection}`}>
-              {connection === "connected"
-                ? "Live"
-                : connection === "connecting"
-                  ? "Connecting…"
-                  : connection === "error"
-                    ? "Disconnected"
+            {connection === "error" ? (
+              <button
+                type="button"
+                className="conn-pill conn-error conn-retry"
+                title="Reconnect now"
+                onClick={() => void reconnect()}
+              >
+                Disconnected · Retry
+              </button>
+            ) : (
+              <span className={`conn-pill conn-${connection}`}>
+                {connection === "connected"
+                  ? "Live"
+                  : connection === "connecting"
+                    ? "Connecting…"
                     : ""}
-            </span>
+              </span>
+            )}
             <button
               className="sound-toggle"
               onClick={toggleSound}

@@ -29,6 +29,8 @@ export default function Chat() {
   const roomSlowMode = useRoom((s) => s.roomSlowMode);
   const setSlowMode = useRoom((s) => s.setSlowMode);
   const code = useRoom((s) => s.code);
+  const outbox = useRoom((s) => s.outbox);
+  const discardOutbox = useRoom((s) => s.discardOutbox);
   const failedChat = useRoom((s) => s.failedChat);
   const dismissFailedChat = useRoom((s) => s.dismissFailedChat);
   const myId = useSession((s) => s.profile?.id);
@@ -291,6 +293,17 @@ export default function Chat() {
             <i />
           </span>
           {typingLabel}
+        </div>
+      )}
+      {outbox.length > 0 && (
+        <div className="outbox-line" role="status">
+          <span>
+            {outbox.length} message{outbox.length === 1 ? "" : "s"} queued — sends when
+            reconnected
+          </span>
+          <button type="button" className="outbox-discard" onClick={discardOutbox}>
+            Discard
+          </button>
         </div>
       )}
       <form className="chat-form" onSubmit={submit}>
