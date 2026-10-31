@@ -6,6 +6,7 @@ import { isSupabaseConfigured } from "../lib/supabase";
 import { loadRecentRooms } from "../lib/recent";
 import { RoomError } from "../lib/rooms-api";
 import { YappieMark } from "../App";
+import LandingArt from "./LandingArt";
 
 interface Props {
   onNeedSetup: () => void;
@@ -127,7 +128,12 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
           <YappieMark size={34} />
           Yappie
         </div>
+        <LandingArt />
         <p className="tagline">Watch YouTube together, perfectly in sync.</p>
+        <p className="explainer">
+          Drop a link, share the code — chat, reactions and a drift-free player for everyone in the
+          room.
+        </p>
         <div className="avatar-pick">
           <button
             type="button"

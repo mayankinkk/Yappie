@@ -250,7 +250,22 @@ a {
 }
 
 .landing-card .tagline {
-  margin-bottom: 26px;
+  margin-bottom: 6px;
+}
+
+.landing-card .explainer {
+  margin: 0 0 26px;
+  color: var(--faint);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.landing-art {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 14px 0 16px;
+  border-radius: 12px;
 }
 
 .landing-card .field {
