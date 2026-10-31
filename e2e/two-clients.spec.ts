@@ -95,10 +95,10 @@ test.describe("two clients", () => {
       await expect(host.locator(".queue-item")).toHaveCount(1, { timeout: 20_000 });
       await expect(guest.locator(".queue-item")).toHaveCount(1, { timeout: 20_000 });
 
-      // --- Guest adds → host approves by merging → both see it
+      // --- Guest adds directly (server-authoritative add_queue_item) → both see it
       await guest.locator(".queue-add input").fill("https://youtu.be/jNQXAC9IVRw");
       await guest.locator(".queue-add input").press("Enter");
-      await expect(guest.locator(".toast", { hasText: "Requested to add" })).toBeVisible();
+      await expect(guest.locator(".toast", { hasText: "Added to queue" })).toBeVisible();
       await expect(host.locator(".queue-item")).toHaveCount(2, { timeout: 20_000 });
       await expect(guest.locator(".queue-item")).toHaveCount(2, { timeout: 20_000 });
 
