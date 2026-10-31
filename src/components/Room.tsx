@@ -14,6 +14,7 @@ import VideoStrip from "./VideoStrip";
 import ScreenShare from "./ScreenShare";
 import { useVoice } from "../voice/useVoice";
 import { watchUrl } from "../lib/video-id";
+import { shareInvite } from "../lib/invite";
 import { timeAgo } from "../lib/time";
 import { needsNativeYoutubeControls, toggleCinemaFullscreen } from "../lib/fullscreen";
 import { soundEnabled, setSoundEnabled, playSound } from "../lib/sound";
@@ -278,7 +279,34 @@ export default function Room() {
               {!videoId && (
                 <div className="empty-state">
                   <div className="big">No video yet</div>
-                  <div>Paste a YouTube link below to start the party</div>
+                  <div>Start the party in three steps</div>
+                  <ol className="onboard-steps">
+                    <li>
+                      <span className="step-n" aria-hidden="true">
+                        1
+                      </span>
+                      <span>Paste a YouTube link below</span>
+                    </li>
+                    <li>
+                      <span className="step-n" aria-hidden="true">
+                        2
+                      </span>
+                      <span>Invite your friends</span>
+                      <button
+                        type="button"
+                        className="btn primary small"
+                        onClick={() => void shareInvite(code, pushToast)}
+                      >
+                        Share
+                      </button>
+                    </li>
+                    <li>
+                      <span className="step-n" aria-hidden="true">
+                        3
+                      </span>
+                      <span>Press play — everyone stays in sync</span>
+                    </li>
+                  </ol>
                 </div>
               )}
               {buffering && (

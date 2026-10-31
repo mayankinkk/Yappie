@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useRoom, isHostNow } from "../stores/room";
 import { useSession } from "../stores/session";
 import { YappieMark } from "../App";
+import { canNativeShare, shareInvite } from "../lib/invite";
 
 export default function RoomHeader() {
   const code = useRoom((s) => s.code)!;
@@ -13,16 +15,9 @@ export default function RoomHeader() {
   const pushToast = useRoom((s) => s.pushToast);
   const profile = useSession((s) => s.profile);
   const isHost = profile?.id === hostId;
-
-  async function copyLink() {
-    const link = `${location.origin}${location.pathname}?room=${code}`;
-    try {
-      await navigator.clipboard.writeText(link);
-      pushToast("Invite link copied");
-    } catch {
-      window.prompt("Copy this invite link:", link);
-    }
-  }
+  // Phones get the native share sheet behind a "Share" label; desktop keeps
+  // the familiar copy affordance.
+  const [nativeShare] = useState(canNativeShare);
 
   return (
     <header className="topbar">
@@ -53,8 +48,12 @@ export default function RoomHeader() {
         <span className="badge locked-badge">Host-locked</span>
       )}
       {roomLocked && !isHost && <span className="badge locked-badge">Invite only</span>}
-      <button className="btn small ghost" onClick={() => void copyLink()}>
-        Copy invite
+      <button
+        className="btn small ghost"
+        onClick={() => void shareInvite(code, pushToast)}
+        title={nativeShare ? "Share the invite" : "Copy the invite link"}
+      >
+        {nativeShare ? "Share" : "Copy invite"}
       </button>
       <button className="btn small ghost danger" onClick={leaveRoom}>
         Leave

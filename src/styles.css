@@ -791,6 +791,44 @@ a {
   font-weight: 550;
 }
 
+/* Empty-room onboarding: three concrete steps beat one vague hint — the
+   middle step carries the real invite CTA (native share sheet on phones). */
+.onboard-steps {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  text-align: left;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.onboard-steps li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.step-n {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.onboard-steps .btn {
+  margin-left: 4px;
+}
+
 .buffering {
   position: absolute;
   inset: 0;
