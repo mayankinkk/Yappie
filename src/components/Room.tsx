@@ -185,8 +185,11 @@ export default function Room() {
       setPlayer(yt);
     });
     const statePoll = setInterval(() => {
-      const buffering = yt.getState() === (typeof YT !== "undefined" ? YT.PlayerState?.BUFFERING : null);
-      setBuffering(buffering);
+      // getState() is null until the iframe API loads — compared against a
+      // null YT.PlayerState that read as BUFFERING and spun over the empty
+      // state on slow connections. Only a real BUFFERING state counts.
+      const state = yt.getState();
+      setBuffering(state !== null && typeof YT !== "undefined" && state === YT.PlayerState?.BUFFERING);
     }, 400);
     return () => {
       clearInterval(statePoll);
