@@ -35,9 +35,13 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
-  const [volume, setVolume] = useState(() =>
-    clamp(Number(localStorage.getItem("yappie.volume") ?? "100") || 0, 0, 100),
-  );
+  const [volume, setVolume] = useState(() => {
+    // A corrupt stored value must fall back to full volume — the old
+    // `Number(...) || 0` mapped garbage to silence.
+    const raw = localStorage.getItem("yappie.volume");
+    const parsed = raw === null ? 100 : Number(raw);
+    return clamp(Number.isFinite(parsed) ? parsed : 100, 0, 100);
+  });
   const [seeking, setSeeking] = useState(false);
   const [caps, setCaps] = useState(captionsEnabled);
   const [showHelp, setShowHelp] = useState(false);
@@ -118,6 +122,9 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
 
       if (e.code === "Space") {
         e.preventDefault();
+        // Nothing loaded → nothing to play, and no phantom "asked the host
+        // for control" toast.
+        if (disabled) return;
         if (canControl) togglePlayback();
         else requestControl();
         return;
