@@ -1248,6 +1248,13 @@ export const useRoom = create<RoomState>((set, get) => {
           }
           if (String(error.message || "").includes("chat_rate_limited")) {
             get().pushToast("You're messaging too fast", "error");
+          } else if (String(error.message || "").includes("chat_slow_mode")) {
+            // Server-side slow mode (0013) is the authority — the client gate
+            // above is only a courtesy; surface the server's rejection.
+            get().pushToast(
+              s.roomSlowMode > 0 ? `Slow mode — wait ${s.roomSlowMode}s` : "Slow mode — wait before sending again",
+              "error",
+            );
           } else if (String(error.message || "").includes("muted_until")) {
             get().pushToast("You're muted", "error");
           } else {
