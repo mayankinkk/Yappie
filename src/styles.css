@@ -2860,3 +2860,22 @@ button.moment-jump:hover {
     font-size: 0.85rem;
   }
 }
+
+/* Reduced motion (feature 9): collapse every animation/transition to an
+   instant step instead of removing it, so end states stay readable (toasts
+   still appear, the spinner still shows its arc, floats just vanish).
+   The one exception is the idle controls bar, whose exit relies on a
+   transform — motion-free users keep the opacity+pointer-events hide. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .controls.fs-idle {
+    transform: none;
+  }
+}
