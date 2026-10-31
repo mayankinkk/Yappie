@@ -27,6 +27,10 @@ export interface RoomRow {
   playback?: PlaybackPosition | null;
   password_hash?: string | null;
   slow_mode_seconds?: number | null;
+  name?: string | null;
+  topic?: string | null;
+  max_members?: number | null;
+  require_approval?: boolean | null;
 }
 
 export interface QueueRow {
@@ -98,6 +102,10 @@ function mapError(raw: string): RoomError {
   if (msg.includes("banned")) return new RoomError("banned", "You're banned from this room");
   if (msg.includes("kicked")) return new RoomError("kicked", "You were kicked from this room");
   if (msg.includes("locked")) return new RoomError("locked", "The room is locked right now");
+  if (msg.includes("room_full")) return new RoomError("full", "That room is full");
+  if (msg.includes("approval_required")) {
+    return new RoomError("approval", "Waiting for the host to let you in…", true);
+  }
   if (msg.includes("rate_limited")) return new RoomError("rate", "Slow down — rooms created too fast");
   if (msg.includes("queue_full")) return new RoomError("queue_full", "Queue is full (max 50)");
   if (msg.includes("already_queued")) return new RoomError("already", "Already in the queue");
@@ -339,6 +347,10 @@ export async function saveRoomSettings(
     watched?: WatchedEntry[];
     playback?: PlaybackPosition | null;
     slow_mode_seconds?: number;
+    name?: string | null;
+    topic?: string | null;
+    max_members?: number | null;
+    require_approval?: boolean;
   },
 ): Promise<boolean> {
   const supabase = getSupabase();
@@ -346,4 +358,20 @@ export async function saveRoomSettings(
   // .select() makes RLS denials visible: 0 rows affected → caller isn't the host.
   const { data, error } = await supabase.from("rooms").update(settings).eq("code", code).select("code");
   return !error && Array.isArray(data) && data.length > 0;
+}
+
+/**
+ * Host-only admission for require_approval rooms (0017). Server re-checks the
+ * host, bans, kicks and capacity, then revives the membership row so the
+ * waiting guest's retried join_room succeeds.
+ */
+export async function approveJoinRpc(code: string, userId: string, name: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) throw new RoomError("config", "Connect Supabase first");
+  const { error } = await supabase.rpc("approve_join", {
+    p_code: code,
+    p_user: userId,
+    p_name: name,
+  });
+  if (error) throw mapError(rpcMsg(error));
 }

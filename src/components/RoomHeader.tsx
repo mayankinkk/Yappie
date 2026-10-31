@@ -3,9 +3,11 @@ import { useRoom, isHostNow } from "../stores/room";
 import { useSession } from "../stores/session";
 import { YappieMark } from "../App";
 import { canNativeShare, shareInvite } from "../lib/invite";
+import RoomSettings from "./RoomSettings";
 
 export default function RoomHeader() {
   const code = useRoom((s) => s.code)!;
+  const roomName = useRoom((s) => s.roomName);
   const hostId = useRoom((s) => s.hostId);
   const guestsCanControl = useRoom((s) => s.guestsCanControl);
   const roomLocked = useRoom((s) => s.roomLocked);
@@ -25,13 +27,15 @@ export default function RoomHeader() {
         <YappieMark size={26} />
         Yappie
       </div>
-      <div className="room-chip">
-        Room <strong>{code}</strong>
+      <div className="room-chip" title={roomName || `Room ${code}`}>
+        {roomName ? <strong className="room-name">{roomName}</strong> : "Room"}{" "}
+        <strong>{code}</strong>
       </div>
       {isHost && <span className="badge host-badge">Host</span>}
       <div className="spacer" />
       {isHost && (
         <>
+          <RoomSettings />
           <button className="btn small ghost" onClick={toggleGuestControls}>
             {guestsCanControl ? "Lock playback" : "Allow guest control"}
           </button>

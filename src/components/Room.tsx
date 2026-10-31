@@ -48,6 +48,8 @@ function auditPhrase(e: AuditEntry): string {
       return e.actorName && e.actorName === e.targetName
         ? `${actor} claimed host`
         : `${actor} made ${target} host`;
+    case "approve_join":
+      return `${actor} let ${target} in`;
     default:
       return `${actor} ${e.action}`;
   }
@@ -107,6 +109,10 @@ export default function Room() {
   const queueCount = useRoom((s) => s.queue.length);
   const peopleCount = useRoom((s) => s.participants.length);
   const audit = useRoom((s) => s.audit);
+  const roomTopic = useRoom((s) => s.roomTopic);
+  const maxMembers = useRoom((s) => s.maxMembers);
+  const pendingJoins = useRoom((s) => s.pendingJoins);
+  const respondJoin = useRoom((s) => s.respondJoin);
   // iOS/iPadOS: hand the chrome to YouTube so its fullscreen button can use
   // the native (landscape) video player — see needsNativeYoutubeControls().
   const ytNative = needsNativeYoutubeControls();
@@ -268,6 +274,33 @@ export default function Room() {
           You're offline — reconnecting when the network is back…
         </div>
       )}
+      {isHost && pendingJoins.length > 0 && (
+        <div className="join-requests" role="status" aria-live="polite">
+          {pendingJoins.map((r) => (
+            <div className="join-request" key={r.userId}>
+              <span className="jr-text">
+                <strong>{r.name}</strong> wants to join
+              </span>
+              <span className="cr-actions">
+                <button
+                  type="button"
+                  className="cr-btn approve"
+                  onClick={() => void respondJoin(r.userId, true)}
+                >
+                  Admit
+                </button>
+                <button
+                  type="button"
+                  className="cr-btn deny"
+                  onClick={() => void respondJoin(r.userId, false)}
+                >
+                  Deny
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       <div className={`main${theater ? " theater" : ""}`}>
         <section className="stage">
           <div className={`cinema${ytNative ? " yt-native" : ""}`}>
@@ -398,6 +431,11 @@ export default function Room() {
           </div>
 
           <div className="stage-meta">
+            {roomTopic && (
+              <span className="room-topic" title={roomTopic}>
+                {roomTopic}
+              </span>
+            )}
             {videoId && nowTitle && (
               <span className="now-title" title={nowTitle}>
                 {nowTitle}
@@ -410,6 +448,11 @@ export default function Room() {
                   : "Synced · paused"
                 : "Waiting for a video…"}
             </span>
+            {maxMembers !== null && (
+              <span className="cap-chip" title="Participant cap">
+                {peopleCount}/{maxMembers} in room
+              </span>
+            )}
             {videoId && (
               <button
                 type="button"

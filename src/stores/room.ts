@@ -21,6 +21,7 @@ import { SyncEngine, computeExpectedTime } from "../sync/SyncEngine";
 import {
   RoomError,
   addQueueItemRpc,
+  approveJoinRpc,
   claimHostRpc,
   createRoomRpc,
   heartbeatRpc,
@@ -75,6 +76,8 @@ const chatIn = new RateLimiter(5, 5000);
 const reactionIn = new RateLimiter(8, 3000);
 const toastGap = new MinGap(350);
 const membersRefresh = new MinGap(10_000);
+// Host: gate for join-request broadcasts arriving from strangers (0017).
+const joinReqIn = new RateLimiter(4, 10_000);
 
 function isMuted(row: MembershipRow | undefined): boolean {
   return !!row?.muted_until && Date.parse(row.muted_until) > Date.now();
@@ -88,6 +91,13 @@ export interface AuditEntry {
   targetName: string | null;
   detail: string | null;
   createdAt: number;
+}
+
+/** A stranger asking (over the room channel) to be let into a gated room. */
+export interface JoinRequest {
+  userId: string;
+  name: string;
+  ts: number;
 }
 
 function rowToChat(row: ChatRow): ChatMessage {
@@ -138,6 +148,9 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempt = 0;
 /** One flush of the offline chat outbox at a time. */
 let outboxFlushing = false;
+/** Guest waiting on host approval (0017): its own channel + timeout. */
+let approvalChannel: { unsubscribe: () => Promise<unknown> } | null = null;
+let approvalTimer: ReturnType<typeof setTimeout> | null = null;
 let presenceChannel: { track: (p: Record<string, unknown>) => Promise<string> } | null = null;
 let presenceJoinedAt = 0;
 let typingFlag = false;
@@ -192,6 +205,15 @@ interface RoomState {
   failedChat: { text: string; nonce: number } | null;
   /** Chat typed while the channel was down — flushed on reconnect. */
   outbox: string[];
+  /** Room identity + admission (0017): name/topic, participant cap, approval. */
+  roomName: string | null;
+  roomTopic: string | null;
+  maxMembers: number | null;
+  requireApproval: boolean;
+  /** Host: strangers waiting to be let in. */
+  pendingJoins: JoinRequest[];
+  /** Guest: join_room refused us pending the host's decision. */
+  awaitingApproval: boolean;
 
   createRoom(profile: Profile, password?: string | null): Promise<void>;
   joinRoom(code: string, profile: Profile, password?: string | null): Promise<void>;
@@ -230,6 +252,14 @@ interface RoomState {
   toggleGuestControls(): void;
   toggleRoomLock(): Promise<void>;
   setSlowMode(seconds: number): Promise<void>;
+  saveRoomMeta(next: {
+    name?: string;
+    topic?: string;
+    maxMembers?: number | null;
+    requireApproval?: boolean;
+  }): Promise<void>;
+  respondJoin(userId: string, approved: boolean): Promise<void>;
+  cancelApproval(): void;
   requestControl(): void;
   markChatRead(): void;
   dismissFailedChat(): void;
@@ -324,6 +354,10 @@ export const useRoom = create<RoomState>((set, get) => {
         typeof row.slow_mode_seconds === "number" ? row.slow_mode_seconds : s.roomSlowMode,
       videoId: row.video_id ?? null,
       grantedTo: Array.isArray(row.granted_to) ? row.granted_to : [],
+      roomName: row.name ?? null,
+      roomTopic: row.topic ?? null,
+      maxMembers: typeof row.max_members === "number" ? row.max_members : null,
+      requireApproval: !!row.require_approval,
     };
     // Only adopt a queue that is genuinely newer: queue_version changes if
     // and only if the content changes, so an equal version keeps the same
@@ -635,6 +669,29 @@ export const useRoom = create<RoomState>((set, get) => {
       }
     });
 
+    // Guest-approval admission (0017): a stranger refused by join_room asks
+    // over the room channel; the host decides here. approve_join writes the
+    // membership server-side, then join-approval tells them to retry.
+    t.on("join-request", (payload) => {
+      const p = payload as { userId?: string; name?: string } | null;
+      const userId = clampText(p?.userId, 64);
+      if (!userId || userId === profile.id) return;
+      if (get().hostId !== profile.id) return;
+      if (!joinReqIn.allow(userId)) return;
+      const name = clampText(p?.name || "Someone", 40);
+      const reqs = get()
+        .pendingJoins.filter((r) => r.userId !== userId && Date.now() - r.ts < 25_000);
+      set({ pendingJoins: [...reqs, { userId, name, ts: Date.now() }] });
+      get().pushToast(`${name} is asking to join`);
+      setTimeout(() => {
+        const list = get().pendingJoins;
+        const cur = list.find((r) => r.userId === userId);
+        if (cur && Date.now() - cur.ts >= 25_000) {
+          set({ pendingJoins: list.filter((r) => r.userId !== userId) });
+        }
+      }, 26_000);
+    });
+
     // Chat arrives via the database (durable, rate-limited, RLS-checked) —
     // the same channel streams INSERTs as it once did broadcasts.
     channel.on(
@@ -884,12 +941,80 @@ export const useRoom = create<RoomState>((set, get) => {
   }
 
   /**
+   * Tear down the guest-side approval wait (0017): called on answer, on
+   * timeout, and from leaveRoom so a cancel or navigation never leaks the
+   * channel or leaves the waiting card stuck on screen. Resolves once the
+   * channel is actually closed — the retried join reuses the same topic, so
+   * callers must wait rather than race a second join against the leave.
+   */
+  function clearApprovalWait(): Promise<void> {
+    if (approvalTimer) {
+      clearTimeout(approvalTimer);
+      approvalTimer = null;
+    }
+    const ch = approvalChannel;
+    approvalChannel = null;
+    if (!ch) return Promise.resolve();
+    return Promise.resolve(ch.unsubscribe()).then(
+      () => undefined,
+      () => undefined,
+    );
+  }
+
+  /**
+   * Guest side of require_approval admission (0017): join_room refused us, so
+   * open the room channel, ask the host over `join-request`, and wait up to 30s
+   * for `join-approval`. On approval we rejoin — approve_join already inserted
+   * our membership row, so join_room's gates pass on the retry.
+   */
+  function requestJoinApproval(code: string, password: string | null, profile: Profile): void {
+    const supabase = getSupabase();
+    if (!supabase) return;
+    void clearApprovalWait();
+    set({ awaitingApproval: true });
+    const channel = supabase.channel(`yappie-v2-${code}`);
+    approvalChannel = channel;
+    channel
+      .on("broadcast", { event: "join-approval" }, (msg) => {
+        const p = msg.payload as { userId?: string; approved?: boolean } | null;
+        if (!p?.userId || p.userId !== profile.id) return;
+        const wasApproved = !!p.approved;
+        void clearApprovalWait().then(() => {
+          if (wasApproved) {
+            void get()
+              .joinRoom(code, profile, password)
+              .catch(() => {
+                /* joinRoom surfaces its own error */
+              });
+          } else {
+            set({ awaitingApproval: false });
+            get().pushToast("The host declined your request", "error");
+          }
+        });
+      })
+      .subscribe((status) => {
+        if (status !== "SUBSCRIBED" || approvalChannel !== channel) return;
+        void channel.send({
+          type: "broadcast",
+          event: "join-request",
+          payload: { userId: profile.id, name: profile.name },
+        });
+      });
+    approvalTimer = setTimeout(() => {
+      approvalTimer = null;
+      if (approvalChannel !== channel) return;
+      void clearApprovalWait();
+      set({ awaitingApproval: false });
+      get().pushToast("No answer from the host — try joining again", "error");
+    }, 30_000);
+  }
+
+  /**
    * One chat insert over Postgres, awaiting the server's verdict. `restore`
    * hands failed text back to the composer (the normal send path); a flush
    * of the offline outbox leaves the message queued instead so it retries.
    */
-  async function deliverChat(msg: ChatMessage, code: string, restore: boolean): Promise<boolean> {
-    const supabase = getSupabase();
+  async function deliverChat(msg: ChatMessage, code: string, restore: boolean): Promise<boolean> {    const supabase = getSupabase();
     if (!supabase) return false;
     try {
       const { error } = await supabase.from("chat_messages").insert({
@@ -963,6 +1088,12 @@ export const useRoom = create<RoomState>((set, get) => {
     audit: [],
     failedChat: null,
     outbox: [],
+    roomName: null,
+    roomTopic: null,
+    maxMembers: null,
+    requireApproval: false,
+    pendingJoins: [],
+    awaitingApproval: false,
 
     async loadMembers() {
       const s = get();
@@ -1096,6 +1227,12 @@ export const useRoom = create<RoomState>((set, get) => {
         joined = await joinRoomRpc(code, password ?? null, p.name);
       } catch (e) {
         const err = e instanceof RoomError ? e : new RoomError("unknown", "Couldn't join the room");
+        // Gated room (0017): the server refused admission, not failed — ask
+        // the host over the room channel and wait (landing shows the card).
+        if (err.code === "approval") {
+          requestJoinApproval(code, password ?? null, p);
+          throw new RoomError(err.code, err.message, true);
+        }
         if (!err.silent) get().pushToast(err.message, "error");
         throw new RoomError(err.code, err.message, true);
       }
@@ -1103,9 +1240,16 @@ export const useRoom = create<RoomState>((set, get) => {
       // Watch history + resume position live on the rooms row (members can
       // SELECT). Fetched as two queries on purpose: `playback` only exists
       // after migration 0015, and one joint select would fail wholesale on an
-      // unapplied schema — taking the history down with it.
+      // unapplied schema — taking the history down with it. Room identity
+      // (0017) is a third, for the same reason.
       let watched: WatchedEntry[] = [];
       let playback: PlaybackPosition | null = null;
+      let roomMeta = {
+        name: null as string | null,
+        topic: null as string | null,
+        maxMembers: null as number | null,
+        requireApproval: false,
+      };
       const supabase = getSupabase();
       if (supabase) {
         try {
@@ -1129,6 +1273,24 @@ export const useRoom = create<RoomState>((set, get) => {
           }
         } catch {
           /* resume is non-essential (column lands with 0015) */
+        }
+        try {
+          const res = await supabase
+            .from("rooms")
+            .select("name, topic, max_members, require_approval")
+            .eq("code", code)
+            .maybeSingle();
+          const r = res?.data;
+          if (r) {
+            roomMeta = {
+              name: r.name ?? null,
+              topic: r.topic ?? null,
+              maxMembers: typeof r.max_members === "number" ? r.max_members : null,
+              requireApproval: !!r.require_approval,
+            };
+          }
+        } catch {
+          /* identity is non-essential (columns land with 0017) */
         }
       }
       resumeRef = playback;
@@ -1159,6 +1321,12 @@ export const useRoom = create<RoomState>((set, get) => {
         audit: [],
         failedChat: null,
         outbox: [],
+        roomName: roomMeta.name,
+        roomTopic: roomMeta.topic,
+        maxMembers: roomMeta.maxMembers,
+        requireApproval: roomMeta.requireApproval,
+        pendingJoins: [],
+        awaitingApproval: false,
       });
       selfProfile = p;
       await connect(code, p);
@@ -1209,6 +1377,7 @@ export const useRoom = create<RoomState>((set, get) => {
       presenceJoinedAt = 0;
       clearReconnectTimer();
       reconnectAttempt = 0;
+      void clearApprovalWait();
       channelUnsubscribe?.();
       channelUnsubscribe = null;
       engine?.destroy();
@@ -1241,6 +1410,12 @@ export const useRoom = create<RoomState>((set, get) => {
         audit: [],
         failedChat: null,
         outbox: [],
+        roomName: null,
+        roomTopic: null,
+        maxMembers: null,
+        requireApproval: false,
+        pendingJoins: [],
+        awaitingApproval: false,
       });
       const url = new URL(location.href);
       url.searchParams.delete("room");
@@ -1752,6 +1927,75 @@ export const useRoom = create<RoomState>((set, get) => {
       }
       set({ roomSlowMode: clamped });
       get().pushToast(clamped ? `Slow mode: 1 message / ${clamped}s` : "Slow mode off");
+    },
+
+    async saveRoomMeta(next) {
+      const s = get();
+      if (!s.code || !selfProfile || s.hostId !== selfProfile.id) {
+        get().pushToast("Only the host can change room settings", "error");
+        return;
+      }
+      const settings: {
+        name?: string | null;
+        topic?: string | null;
+        max_members?: number | null;
+        require_approval?: boolean;
+      } = {};
+      const local: Partial<RoomState> = {};
+      if (next.name !== undefined) {
+        const clean = next.name.trim().slice(0, 40);
+        settings.name = clean || null;
+        local.roomName = clean || null;
+      }
+      if (next.topic !== undefined) {
+        const clean = next.topic.trim().slice(0, 120);
+        settings.topic = clean || null;
+        local.roomTopic = clean || null;
+      }
+      if (next.maxMembers !== undefined) {
+        const cap =
+          next.maxMembers === null
+            ? null
+            : Math.max(2, Math.min(100, Math.round(next.maxMembers)));
+        settings.max_members = cap;
+        local.maxMembers = cap;
+      }
+      if (next.requireApproval !== undefined) {
+        settings.require_approval = !!next.requireApproval;
+        local.requireApproval = !!next.requireApproval;
+      }
+      const ok = await saveRoomSettings(s.code, settings);
+      if (!ok) {
+        get().pushToast("Only the host can change room settings", "error");
+        return;
+      }
+      set(local);
+      get().pushToast("Room settings saved");
+    },
+
+    async respondJoin(userId, approved) {
+      const s = get();
+      const req = s.pendingJoins.find((r) => r.userId === userId);
+      set({ pendingJoins: s.pendingJoins.filter((r) => r.userId !== userId) });
+      if (!s.code || !selfProfile) return;
+      if (approved) {
+        try {
+          await approveJoinRpc(s.code, userId, req?.name ?? "Guest");
+        } catch (e) {
+          get().pushToast(
+            e instanceof RoomError ? e.message : "Couldn't admit that guest",
+            "error",
+          );
+          return;
+        }
+        get().pushToast(`Admitted ${req?.name ?? "guest"}`);
+      }
+      await transport?.send("join-approval", { userId, approved });
+    },
+
+    cancelApproval() {
+      void clearApprovalWait();
+      if (get().awaitingApproval) set({ awaitingApproval: false });
     },
 
     requestControl() {

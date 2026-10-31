@@ -20,6 +20,8 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
   const createRoom = useRoom((s) => s.createRoom);
   const joinRoom = useRoom((s) => s.joinRoom);
   const pushToast = useRoom((s) => s.pushToast);
+  const awaitingApproval = useRoom((s) => s.awaitingApproval);
+  const cancelApproval = useRoom((s) => s.cancelApproval);
   const [code, setCode] = useState(
     new URLSearchParams(location.search).get("room")?.toUpperCase() || "",
   );
@@ -74,7 +76,7 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
   }
 
   async function handleCreate() {
-    if (busy) return;
+    if (busy || awaitingApproval) return;
     if (!requireName() || !requireSetup()) return;
     const pw = createProtected && roomPassword.trim() ? roomPassword.trim() : null;
     if (createProtected && !pw) {
@@ -93,7 +95,7 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
   }
 
   async function doJoin(clean: string) {
-    if (busy) return;
+    if (busy || awaitingApproval) return;
     if (!requireName() || !requireSetup()) return;
     if (clean.length !== 6) {
       setShake((s) => s + 1);
@@ -114,7 +116,7 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
   }
 
   async function handleJoin() {
-    if (busy) return;
+    if (busy || awaitingApproval) return;
     await doJoin(sanitizeCode(code));
   }
 
@@ -183,7 +185,7 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
             if (e.key === "Enter") e.currentTarget.blur();
           }}
         />
-        <button className="btn primary wide" onClick={handleCreate} disabled={busy}>
+        <button className="btn primary wide" onClick={handleCreate} disabled={busy || awaitingApproval}>
           {busy ? "Joining…" : "Create a room"}
         </button>
         <label className="pw-toggle">
@@ -221,7 +223,7 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
               if (e.key === "Enter") void handleJoin();
             }}
           />
-          <button className="btn" onClick={handleJoin} disabled={busy}>
+          <button className="btn" onClick={handleJoin} disabled={busy || awaitingApproval}>
             Join
           </button>
         </div>
@@ -233,7 +235,7 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
                 key={r.code}
                 className="recent-chip"
                 title={`Rejoin room ${r.code}`}
-                disabled={busy}
+                disabled={busy || awaitingApproval}
                 onClick={() => {
                   setCode(r.code);
                   void doJoin(r.code);
@@ -262,6 +264,22 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
             {passwordError && <div className="field-error">{passwordError}</div>}
           </div>
         )}
+        {awaitingApproval && (
+          <div className="approval-wait" role="status" aria-live="polite">
+            <span className="approval-dot" aria-hidden="true" />
+            <div className="approval-copy">
+              <strong>Asking the host…</strong>
+              <span>This room lets the host approve who's in — hang tight.</span>
+            </div>
+            <button
+              className="btn small ghost"
+              onClick={cancelApproval}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
         {isSupabaseConfigured() && (
           <>
             <div className="divider">
@@ -269,7 +287,7 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
             </div>
             <button
               className="btn wide google-btn"
-              disabled={busy}
+              disabled={busy || awaitingApproval}
               onClick={() => {
                 void signInWithGoogle().then((err) => {
                   if (err) pushToast(err, "error");
