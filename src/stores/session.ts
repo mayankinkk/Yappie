@@ -15,20 +15,35 @@ export const AVATAR_EMOJIS = [
 interface StoredProfile {
   id?: string;
   name: string;
-  color: number;
+  color?: number;
   avatar?: string;
 }
 
 function readStored(): StoredProfile | null {
   try {
-    return JSON.parse(localStorage.getItem(LS_PROFILE) || "null");
+    // Validate the shape, not just the JSON: a hand-edited or corrupted
+    // value (e.g. {"name": 123}) used to throw on .trim() inside init() and
+    // brick boot entirely.
+    const raw: unknown = JSON.parse(localStorage.getItem(LS_PROFILE) || "null");
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const rec = raw as Record<string, unknown>;
+    return {
+      id: typeof rec.id === "string" ? rec.id : undefined,
+      name: typeof rec.name === "string" ? rec.name : "",
+      color: typeof rec.color === "number" && Number.isFinite(rec.color) ? rec.color : undefined,
+      avatar: typeof rec.avatar === "string" ? rec.avatar : undefined,
+    };
   } catch {
     return null;
   }
 }
 
 function persist(profile: Profile): void {
-  localStorage.setItem(LS_PROFILE, JSON.stringify(profile));
+  try {
+    localStorage.setItem(LS_PROFILE, JSON.stringify(profile));
+  } catch {
+    /* storage unavailable (private mode/quota) — session stays in memory */
+  }
 }
 
 interface SessionState {
