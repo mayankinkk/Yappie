@@ -245,7 +245,11 @@ export default function Room() {
   }
 
   function handleLoad(value: string, clear: () => void) {
-    void loadVideo(value).then(clear);
+    // Clear only when something actually landed — an invalid link or a
+    // rejected queue add keeps the text so it can be fixed.
+    void loadVideo(value).then((ok) => {
+      if (ok) clear();
+    });
   }
 
   return (

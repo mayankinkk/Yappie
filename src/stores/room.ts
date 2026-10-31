@@ -186,7 +186,7 @@ interface RoomState {
 
   togglePlayback(): void;
   seekTo(time: number): void;
-  loadVideo(input: string): Promise<void>;
+  loadVideo(input: string): Promise<boolean>;
   ensureTitle(videoId: string): void;
   resyncNow(): void;
   sendChat(text: string): void;
@@ -1155,18 +1155,20 @@ export const useRoom = create<RoomState>((set, get) => {
 
     ensureTitle,
 
+    /** Returns whether the request actually landed (loaded or queued) —
+     *  callers clear the paste box only on success. */
     async loadVideo(input) {
       const id = extractVideoId(input);
       if (!id) {
         get().pushToast("Paste a valid YouTube link", "error");
-        return;
+        return false;
       }
       const s = get();
       const isController = canControlNow();
       if (!isController) {
         const queued = await get().addToQueue(id);
         if (queued) get().pushToast("Only the host plays videos — added to the queue instead");
-        return;
+        return queued;
       }
       engine?.localLoad(id, true);
       clearUpNext();
@@ -1175,6 +1177,7 @@ export const useRoom = create<RoomState>((set, get) => {
         void fetchVideoTitle(id).then((title) => recordWatched(id, title));
       }
       persistPlayback({ force: true });
+      return true;
     },
 
     sendChat(text) {

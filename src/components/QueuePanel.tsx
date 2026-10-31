@@ -109,8 +109,8 @@ export default function QueuePanel() {
           onKeyDown={(e) => {
             if (e.key !== "Enter") return;
             const input = e.currentTarget;
-            void addToQueue(input.value).then(() => {
-              input.value = "";
+            void addToQueue(input.value).then((ok) => {
+              if (ok) input.value = "";
             });
           }}
         />
