@@ -1117,6 +1117,10 @@ export const useRoom = create<RoomState>((set, get) => {
           engine?.flushPendingRemote();
         }
       });
+      // Belt and braces: if ready somehow fired before the callback above
+      // was registered (microtask vs postMessage ordering), don't wait for
+      // the next tick to apply a held sync answer.
+      if (adapter.ready()) engine?.flushPendingRemote();
       engine?.requestSync();
       scheduleSelfSyncFallback(get().videoId);
     },
