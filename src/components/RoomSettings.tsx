@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRoom } from "../stores/room";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 
@@ -54,66 +55,68 @@ export default function RoomSettings() {
       >
         ⚙ Settings
       </button>
-      {open && (
-        <div className="overlay" onClick={() => setOpen(false)}>
-          <div
-            className="overlay-card"
-            ref={cardRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Room settings"
-            tabIndex={-1}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2>Room settings</h2>
-            <p>Everyone sees these — the name shows in the header, the topic on stage.</p>
-            <input
-              className="field"
-              type="text"
-              maxLength={40}
-              placeholder="Room name (e.g. Movie night)"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <input
-              className="field"
-              type="text"
-              maxLength={120}
-              placeholder="Topic or note for tonight"
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-            />
-            <input
-              className="field"
-              type="number"
-              min={2}
-              max={100}
-              placeholder="Participant cap (2–100, empty = unlimited)"
-              value={cap}
-              onChange={(e) => setCap(e.target.value)}
-            />
-            <label className="pw-toggle">
+      {open &&
+        createPortal(
+          <div className="overlay" onClick={() => setOpen(false)}>
+            <div
+              className="overlay-card"
+              ref={cardRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Room settings"
+              tabIndex={-1}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2>Room settings</h2>
+              <p>Everyone sees these — the name shows in the header, the topic on stage.</p>
               <input
-                type="checkbox"
-                checked={approval}
-                onChange={(e) => setApproval(e.target.checked)}
+                className="field"
+                type="text"
+                maxLength={40}
+                placeholder="Room name (e.g. Movie night)"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
               />
-              Let me approve people before they join
-            </label>
-            <div className="overlay-actions">
-              <button className="btn ghost" onClick={() => setOpen(false)}>
-                Cancel
-              </button>
-              <button className="btn primary" onClick={() => void save()} disabled={saving}>
-                {saving ? "Saving…" : "Save"}
-              </button>
+              <input
+                className="field"
+                type="text"
+                maxLength={120}
+                placeholder="Topic or note for tonight"
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+              />
+              <input
+                className="field"
+                type="number"
+                min={2}
+                max={100}
+                placeholder="Participant cap (2–100, empty = unlimited)"
+                value={cap}
+                onChange={(e) => setCap(e.target.value)}
+              />
+              <label className="pw-toggle">
+                <input
+                  type="checkbox"
+                  checked={approval}
+                  onChange={(e) => setApproval(e.target.checked)}
+                />
+                Let me approve people before they join
+              </label>
+              <div className="overlay-actions">
+                <button className="btn ghost" onClick={() => setOpen(false)}>
+                  Cancel
+                </button>
+                <button className="btn primary" onClick={() => void save()} disabled={saving}>
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              </div>
+              <p className="overlay-note">
+                With approval on, new guests wait at the door until you admit them.
+              </p>
             </div>
-            <p className="overlay-note">
-              With approval on, new guests wait at the door until you admit them.
-            </p>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </>
   );
 }
