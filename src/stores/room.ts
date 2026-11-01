@@ -173,6 +173,27 @@ let claimInFlight = false;
 let resumeRef: PlaybackPosition | null = null;
 let playbackPersistTimer: ReturnType<typeof setInterval> | null = null;
 let lastPlaybackPersistAt = 0;
+/** Keep-alive divider: every 3rd20s heartbeat (~60s) re-announces presence. */
+let presenceBeat = 0;
+
+/**
+ * The one presence payload shape — subscribe-track, typing, voice and the
+ * keep-alive all send this so flags (typingAt/inVoice) can't drift between
+ * call sites; every track() replaces the whole presence meta for our key.
+ * Optional `p` covers the subscribe path before selfProfile is authoritative.
+ */
+function presencePayload(p?: Profile): Record<string, unknown> {
+  const pro = p ?? selfProfile;
+  if (!pro) return {};
+  return {
+    name: pro.name,
+    color: pro.color,
+    avatar: pro.avatar || "",
+    joinedAt: presenceJoinedAt,
+    typingAt: typingFlag ? Date.now() : 0,
+    inVoice: voiceFlag,
+  };
+}
 
 /** Min gap between periodic host playback writes (explicit actions bypass). */
 const PLAYBACK_PERSIST_MIN_GAP = 8_000;
@@ -918,13 +939,7 @@ export const useRoom = create<RoomState>((set, get) => {
           reconnectAttempt = 0;
           clearReconnectTimer();
           set({ connection: "connected" });
-          void channel.track({
-            name: profile.name,
-            color: profile.color,
-            avatar: profile.avatar || "",
-            joinedAt: presenceJoinedAt,
-            inVoice: voiceFlag,
-          });
+          void channel.track(presencePayload(profile));
           void get().loadMembers();
           void get().loadChat();
           void get().loadAudit();
@@ -944,6 +959,18 @@ export const useRoom = create<RoomState>((set, get) => {
           } else {
             // Post-join drop: keep retrying on our own backoff instead of
             // leaving a dead room on screen with only a toast for company.
+            scheduleReconnect();
+          }
+        } else if (status === "CLOSED") {
+          // A close is not always an error, but a post-join one always means
+          // this channel is done — rebuild on backoff so the roster, chat and
+          // sync don't keep a dead socket's state. Deliberate teardowns
+          // (leaveRoom, reconnect) are neutralized by the code/connection
+          // guards in scheduleReconnect/reconnect themselves.
+          if (!settled) {
+            settled = true;
+            reject(new Error(status));
+          } else {
             scheduleReconnect();
           }
         }
@@ -1362,6 +1389,7 @@ export const useRoom = create<RoomState>((set, get) => {
       history.replaceState(null, "", url);
       document.title = `Yappie · ${code}`;
       syncReqTick = 0;
+      presenceBeat = 0;
       driftTimer = setInterval(() => {
         engine?.tick();
         set({
@@ -1378,7 +1406,17 @@ export const useRoom = create<RoomState>((set, get) => {
         }
       }, 5000);
       void heartbeatRpc(code);
-      heartbeatTimer = setInterval(() => void heartbeatRpc(code), HEARTBEAT_MS);
+      heartbeatTimer = setInterval(() => {
+        void heartbeatRpc(code);
+        // Presence keep-alive: re-announcing unchanged state is a no-op
+        // diff server-side, but resurrects a track that silently vanished
+        // (socket rejoined without re-tracking) without waiting for a full
+        // channel rebuild.
+        if (++presenceBeat >= 3) {
+          presenceBeat = 0;
+          void presenceChannel?.track(presencePayload());
+        }
+      }, HEARTBEAT_MS);
       if (playbackPersistTimer) clearInterval(playbackPersistTimer);
       playbackPersistTimer = setInterval(() => persistPlayback(), PLAYBACK_PERSIST_MS);
     },
@@ -1403,6 +1441,7 @@ export const useRoom = create<RoomState>((set, get) => {
       presenceJoinedAt = 0;
       clearReconnectTimer();
       reconnectAttempt = 0;
+      presenceBeat = 0;
       void clearApprovalWait();
       channelUnsubscribe?.();
       channelUnsubscribe = null;
@@ -1717,27 +1756,12 @@ export const useRoom = create<RoomState>((set, get) => {
       if (!selfProfile || !get().code || !presenceChannel) return;
       if (typingFlag === active) return;
       typingFlag = active;
-      const payload = () => ({
-        name: selfProfile!.name,
-        color: selfProfile!.color,
-        avatar: selfProfile!.avatar || "",
-        joinedAt: presenceJoinedAt,
-        typingAt: active ? Date.now() : 0,
-        inVoice: voiceFlag,
-      });
-      void presenceChannel.track(payload());
+      void presenceChannel.track(presencePayload());
       if (active) {
         if (!typingHeartbeat) {
           typingHeartbeat = setInterval(() => {
             if (!typingFlag || !selfProfile || !presenceChannel) return;
-            void presenceChannel.track({
-              name: selfProfile.name,
-              color: selfProfile.color,
-              avatar: selfProfile.avatar || "",
-              joinedAt: presenceJoinedAt,
-              typingAt: Date.now(),
-              inVoice: voiceFlag,
-            });
+            void presenceChannel.track(presencePayload());
           }, 2000);
         }
       } else if (typingHeartbeat) {
@@ -1756,14 +1780,7 @@ export const useRoom = create<RoomState>((set, get) => {
       if (!selfProfile || !get().code || !presenceChannel) return;
       if (voiceFlag === inVoice) return;
       voiceFlag = inVoice;
-      void presenceChannel.track({
-        name: selfProfile.name,
-        color: selfProfile.color,
-        avatar: selfProfile.avatar || "",
-        joinedAt: presenceJoinedAt,
-        typingAt: typingFlag ? Date.now() : 0,
-        inVoice,
-      });
+      void presenceChannel.track(presencePayload());
     },
 
     react(emoji) {
