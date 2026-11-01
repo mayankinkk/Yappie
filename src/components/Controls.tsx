@@ -193,12 +193,31 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
     return () => window.removeEventListener("keydown", onKey);
   }, [togglePlayback, requestControl, seekTo, canControl, disabled, player, duration, muted, volume, caps, onToggleTheater, toggleCaptions]);
 
-  function onSeekCommit() {
-    setSeeking(false);
-    const value = Number(sliderRef.current?.value || 0);
-    if (canControl) seekTo(value);
-    else requestControl();
-  }
+  // A drag may end anywhere: releasing a few px off the slider — or over the
+  // YouTube iframe, which swallows the pointerup — left `seeking` stuck true,
+  // freezing the thumb and fill at the drag's start while the 250ms poll kept
+  // ticking the clock. Window-level release listeners close every gap (the
+  // buttons===0 move also catches a release that happened outside the window).
+  useEffect(() => {
+    if (!seeking) return;
+    function end() {
+      setSeeking(false);
+      const value = Number(sliderRef.current?.value || 0);
+      if (canControl) seekTo(value);
+      else requestControl();
+    }
+    function onMove(e: PointerEvent) {
+      if (e.buttons === 0) end();
+    }
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    window.addEventListener("pointermove", onMove);
+    return () => {
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      window.removeEventListener("pointermove", onMove);
+    };
+  }, [seeking, canControl, seekTo, requestControl]);
 
   function toggleFullscreen() {
     toggleCinemaFullscreen();
@@ -244,7 +263,12 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
         step={0.1}
         defaultValue={0}
         disabled={disabled}
-        onPointerDown={() => setSeeking(true)}
+        onPointerDown={(e) => {
+          // Capture so the drag's pointer events stay on the slider even
+          // over the YouTube iframe — the release then always reach us.
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setSeeking(true);
+        }}
         onChange={(e) => {
           const v = Number(e.target.value);
           const pct = duration ? clamp((v / duration) * 100, 0, 100) : 0;
@@ -272,7 +296,6 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
           e.currentTarget.style.setProperty("--fill", String(pct));
           seekTo(target);
         }}
-        onPointerUp={onSeekCommit}
       />
       <span className="time-label">
         {formatTime(time)} / {formatTime(duration)}
