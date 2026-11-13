@@ -28,7 +28,7 @@ You can also skip `.env.local` entirely — on first run the app shows a setup o
 4. **Apply the database migrations** — paste every file in [`supabase/migrations/`](supabase/migrations/) into the SQL editor in numeric order (0001 → 0010), or run `supabase db push` if you use the CLI. The app does not work without them: rooms, membership, host authority, chat history, grants, watch history, host message deletion, chat reactions, queue voting, stale-room GC, and the RLS helpers live in Postgres. (0005/0006 fix pgcrypto search-path and RLS recursion issues that bite on fresh projects.)
 5. *(Optional)* **Authentication → Providers → Google** — enable it (OAuth client ID/secret from Google Cloud Console) to light up "Continue with Google" on the landing page. Without it the button shows a clear error and everything else works.
 
-## Voice chat (optional)
+## Voice chat
 
 1. Create a free [LiveKit Cloud](https://cloud.livekit.io) project — copy the **URL**, **API key**, and **API secret**
 2. Put `VITE_LIVEKIT_URL` in `.env.local` (or leave env empty and deploy the edge function; the in-app overlay accepts the Supabase keys only)
