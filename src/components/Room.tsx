@@ -92,7 +92,6 @@ export default function Room() {
   const [sound, setSound] = useState(soundEnabled());
   const name = useSession((s) => s.profile?.name) || "";
   const togglePlayback = useRoom((s) => s.togglePlayback);
-  const requestControl = useRoom((s) => s.requestControl);
   const upNext = useRoom((s) => s.upNext);
   const skipUpNext = useRoom((s) => s.skipUpNext);
   const hostId = useRoom((s) => s.hostId);
@@ -168,8 +167,7 @@ export default function Room() {
     hotTimer.current = window.setTimeout(() => {
       hotTimer.current = null;
       if (!videoId) return;
-      if (canControlNow()) togglePlayback();
-      else requestControl();
+      togglePlayback();
     }, 240);
   }
 

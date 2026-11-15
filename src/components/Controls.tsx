@@ -132,8 +132,7 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
         // Nothing loaded → nothing to play, and no phantom "asked the host
         // for control" toast.
         if (disabled) return;
-        if (canControl) togglePlayback();
-        else requestControl();
+        togglePlayback();
         return;
       }
       if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
@@ -245,7 +244,7 @@ export default function Controls({ player, playing, theater, onToggleTheater }: 
         className="ctrl-btn play"
         title={playing ? "Pause (Space)" : "Play (Space)"}
         disabled={disabled}
-        onClick={() => (canControl ? togglePlayback() : requestControl())}
+        onClick={() => togglePlayback()}
       >
         {playing ? (
           <svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z" /></svg>
