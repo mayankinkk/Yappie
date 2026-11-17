@@ -62,10 +62,11 @@ describe("loadRecentRooms", () => {
   });
 
   it("filters malformed entries and wrong-length codes", () => {
+    const now = Date.now();
     stubStorage({
       "yappie.recentRooms": JSON.stringify([
-        { code: "GOOD01", at: 123 },
-        { code: "nope", at: 123 },
+        { code: "GOOD01", at: now },
+        { code: "nope", at: now },
         { code: "BAD", at: "soon" },
         null,
         "string",
@@ -73,6 +74,19 @@ describe("loadRecentRooms", () => {
       ]),
     });
     const list = loadRecentRooms();
-    expect(list).toEqual([{ code: "GOOD01", at: 123 }]);
+    expect(list).toEqual([{ code: "GOOD01", at: now }]);
+  });
+
+  it("expires entries older than 2 days", () => {
+    const now = Date.now();
+    stubStorage({
+      "yappie.recentRooms": JSON.stringify([
+        { code: "FRESH1", at: now },
+        { code: "STALE1", at: now - 2 * 24 * 60 * 60 * 1000 - 1 },
+        { code: "STALE2", at: now - 3 * 24 * 60 * 60 * 1000 },
+      ]),
+    });
+    const list = loadRecentRooms();
+    expect(list).toEqual([{ code: "FRESH1", at: now }]);
   });
 });
