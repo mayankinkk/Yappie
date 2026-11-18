@@ -287,8 +287,14 @@ export function useVoice(roomCode: string) {
         if (next) await micPubRef.current.unmute();
         else await micPubRef.current.mute();
       } else {
-        const micPub = await room.localParticipant.setMicrophoneEnabled(next);
+        // Mirror join: always acquire the mic muted so a single click never
+        // opens a hot mic; unmuting is the explicit second step. If
+        // acquisition succeeds but the mute/unmute throws, the mic stays
+        // muted rather than broadcasting unexpectedly.
+        const micPub = await room.localParticipant.setMicrophoneEnabled(true);
+        await micPub?.mute();
         micPubRef.current = micPub ?? null;
+        if (next && micPubRef.current) await micPubRef.current.unmute();
       }
       setState((s) => ({ ...s, micOn: next, error: null }));
       refreshAll();
