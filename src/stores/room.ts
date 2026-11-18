@@ -425,6 +425,42 @@ export const useRoom = create<RoomState>((set, get) => {
    * trusted state arrives within ~900ms; an early remote answer always wins.
    */
   let selfSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * (Re)start the per-room timers after a channel (re)subscribe: the 5s drift
+   * tick (drift chip + periodic sync-request), the 20s heartbeat
+   * (last_seen + presence re-announce), and the 10s playback-persist mirror.
+   * Called both from joinRoom and reconnect so a recovered channel keeps
+   * drifting, heartbeats, presence, and playback mirroring alive.
+   */
+  function startRoomTimers(code: string): void {
+    syncReqTick = 0;
+    presenceBeat = 0;
+    if (driftTimer) clearInterval(driftTimer);
+    driftTimer = setInterval(() => {
+      engine?.tick();
+      set({
+        drift: engine?.getLastDrift() ?? null,
+        syncFresh: engine?.hasAuthoritativeSync(SYNC_FRESH_MS) ?? false,
+      });
+      const st = get();
+      if (engine && st.videoId && selfProfile && st.hostId && selfProfile.id !== st.hostId) {
+        syncReqTick = (syncReqTick + 1) % SYNC_REQ_EVERY_TICKS;
+        if (syncReqTick === 0) engine.requestSync();
+      }
+    }, 5000);
+    void heartbeatRpc(code);
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = setInterval(() => {
+      void heartbeatRpc(code);
+      if (++presenceBeat >= 3) {
+        presenceBeat = 0;
+        void presenceChannel?.track(presencePayload());
+      }
+    }, HEARTBEAT_MS);
+    if (playbackPersistTimer) clearInterval(playbackPersistTimer);
+    playbackPersistTimer = setInterval(() => persistPlayback(), PLAYBACK_PERSIST_MS);
+  }
   function scheduleSelfSyncFallback(videoId: string | null): void {
     if (selfSyncTimer) clearTimeout(selfSyncTimer);
     selfSyncTimer = null;
@@ -1390,35 +1426,7 @@ export const useRoom = create<RoomState>((set, get) => {
       document.title = `Yappie · ${code}`;
       syncReqTick = 0;
       presenceBeat = 0;
-      driftTimer = setInterval(() => {
-        engine?.tick();
-        set({
-          drift: engine?.getLastDrift() ?? null,
-          syncFresh: engine?.hasAuthoritativeSync(SYNC_FRESH_MS) ?? false,
-        });
-        // Non-hosts re-verify against the room every cycle: a missed answer or
-        // a bad fallback self-heals within 30s instead of diverging forever
-        // while both sides still claim to be in sync.
-        const st = get();
-        if (engine && st.videoId && selfProfile && st.hostId && selfProfile.id !== st.hostId) {
-          syncReqTick = (syncReqTick + 1) % SYNC_REQ_EVERY_TICKS;
-          if (syncReqTick === 0) engine.requestSync();
-        }
-      }, 5000);
-      void heartbeatRpc(code);
-      heartbeatTimer = setInterval(() => {
-        void heartbeatRpc(code);
-        // Presence keep-alive: re-announcing unchanged state is a no-op
-        // diff server-side, but resurrects a track that silently vanished
-        // (socket rejoined without re-tracking) without waiting for a full
-        // channel rebuild.
-        if (++presenceBeat >= 3) {
-          presenceBeat = 0;
-          void presenceChannel?.track(presencePayload());
-        }
-      }, HEARTBEAT_MS);
-      if (playbackPersistTimer) clearInterval(playbackPersistTimer);
-      playbackPersistTimer = setInterval(() => persistPlayback(), PLAYBACK_PERSIST_MS);
+      startRoomTimers(code);
     },
 
     leaveRoom() {
@@ -1706,6 +1714,7 @@ export const useRoom = create<RoomState>((set, get) => {
         scheduleReconnect();
         return;
       }
+      startRoomTimers(s.code);
       void get().flushOutbox();
     },
 
