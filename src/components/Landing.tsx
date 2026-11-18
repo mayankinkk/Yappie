@@ -17,7 +17,6 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
   const profile = useSession((s) => s.profile);
   const setName = useSession((s) => s.setName);
   const setAvatar = useSession((s) => s.setAvatar);
-  const signInWithGoogle = useSession((s) => s.signInWithGoogle);
   const createRoom = useRoom((s) => s.createRoom);
   const joinRoom = useRoom((s) => s.joinRoom);
   const pushToast = useRoom((s) => s.pushToast);
@@ -285,27 +284,6 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
               Cancel
             </button>
           </div>
-        )}
-        {isSupabaseConfigured() && (
-          <>
-            <div className="divider">
-              <span>or</span>
-            </div>
-            <button
-              className="btn wide google-btn"
-              disabled={busy || awaitingApproval}
-              onClick={() => {
-                void signInWithGoogle().then((err) => {
-                  if (err) pushToast(err, "error");
-                });
-              }}
-            >
-              <span className="google-g" aria-hidden="true">
-                G
-              </span>
-              Continue with Google
-            </button>
-          </>
         )}
       </div>
     </div>
