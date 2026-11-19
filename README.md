@@ -59,6 +59,19 @@ CI runs lint + typecheck + unit tests + build on every push, and the **E2E suite
 
 **Error monitoring**: with `VITE_SENTRY_DSN` set, errors go to Sentry (unhandled errors, rejections, React render failures). Without a DSN the app degrades to a zero-config fallback — console plus insert into the `client_errors` table (deduped, first 10 per session). Inspect with `select * from client_errors order by created_at desc limit 50;`.
 
+## Environment variables
+
+| Variable | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `VITE_SUPABASE_URL` | No* | setup overlay | Supabase Project URL |
+| `VITE_SUPABASE_ANON_KEY` | No* | setup overlay | Supabase anon public key |
+| `VITE_LIVEKIT_URL` | No | (disabled) | LiveKit Cloud URL for voice chat |
+| `VITE_SENTRY_DSN` | No | (disabled) | Error monitoring via Sentry |
+
+\* Required unless you paste keys into the in-app setup overlay on first run.
+
+Set these in your host's dashboard so first-time visitors skip the setup overlay.
+
 ## Deploy
 
 Static hosting, no server needed:
@@ -70,8 +83,6 @@ Static hosting, no server needed:
 **Deploys**: the GitHub repo is connected to Vercel, so every push to `main` goes straight to production and every PR gets an automatic preview URL — no workflow required. The `Preview deploy` GitHub Actions workflow remains as an optional fallback (Netlify, or setups without the Vercel Git integration); it skips itself unless `VERCEL_*` or `NETLIFY_*` secrets are configured. Build-time env: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_LIVEKIT_URL` (Vercel reads these from project settings instead; without them visitors get the in-app setup overlay).
 
 After you know your production URL, add `og:url` and `og:image` (absolute URLs — e.g. `/icons/icon-512.png` served from your domain) to `index.html` for richer link previews.
-
-Set the env vars in your host's dashboard (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, optional `VITE_LIVEKIT_URL`, optional `VITE_SENTRY_DSN` for error monitoring) so first-time visitors skip the setup overlay.
 
 ## How sync works
 
@@ -90,6 +101,20 @@ Each room is a Supabase Realtime channel. Playback state (video id, timestamp, p
 - **Playback control** travels over Realtime broadcasts for latency; receivers reject any `control`/`snapshot` whose `senderId` is not the Postgres host while playback is host-locked (or when guest control is unlocked, any member may control — they're already inside the authenticated room channel). Hosts can also **approve a guest's "ask for control" request**: the grant is a durable `granted_to uuid[]` row on `rooms` (RLS keeps writes host-only), receivers honour it while locked, and the host can revoke it from the roster. Realtime broadcasts are not cryptographically signed, so a determined attacker inside a room can forge *ephemeral* playback events from the host's ID; they still cannot change host, queue, permissions, grants, membership, or moderation state. Report issues that improve this (e.g. signed control tokens) via PRs.
 - **Rate limits:** 5 room creations/minute/user (SQL), chat 5 msgs/5s (SQL trigger — modified clients can't bypass it), per-connection broadcast cap of 20 events/s (Supabase), plus per-identity budgets on both sides of the wire — chat client-side 5/5s + 500ms gap, reactions 6/3s, queue requests 6/min, votes 10/10s, control coalesced to ≤1 per 150ms outbound and ≤12/s inbound per sender, sync-request ≤1/3s, toast dedupe/gap.
 - **Stale rooms are garbage-collected** (0010): `prune_stale_rooms(30)` deletes rooms untouched for 30 days — no member heartbeat (`last_seen`), join/leave, or chat message inside the horizon. It is SECURITY DEFINER but execute-granted to `service_role`/`postgres` only, with a 7–365 day bound on the argument. The `Room GC` GitHub Actions workflow calls it daily via the REST RPC; add `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as repository secrets to activate it (the job skips politely when unset).
+
+## Adding another video source
+
+Yappie plays video through the `PlayerAdapter` interface in `src/types.ts:102`. To add a source other than YouTube:
+
+1. Implement `PlayerAdapter` (`ready`, `load`, `play`, `pause`, `seek`, `getTime`, `isPlaying`, `getState`, `setMuted`, `setVolume`, `setCaptionsEnabled`, `destroy`, `onLocalEvent`). See `src/player/YouTubePlayer.ts` as the reference.
+2. Add URL/ID extraction to `src/lib/video-id.ts` (`extractVideoId`) plus title fetching (`fetchVideoTitle`) for the platform's oEmbed/metadata endpoint.
+3. Wire it in `Room.tsx` — instantiate your adapter and call `attachPlayer(adapter)` on the room store.
+
+Only add a source you have the right to embed. The platform must permit embedding (iframe/player API and Terms of Service) — do not scrape, bypass DRM, or strip controls from services that don't authorize it.
+
+## Contributing
+
+Bug reports and PRs are welcome. Run `npm run lint`, `npm run typecheck`, and `npm test` before opening a PR — CI enforces all three on every push. For security-related issues (e.g. playback-control forgery, RLS bypasses), open a PR or issue describing the improvement rather than public exploit details.
 
 ## Project layout
 
