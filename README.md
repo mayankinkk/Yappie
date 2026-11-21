@@ -28,6 +28,12 @@ You can also skip `.env.local` entirely — on first run the app shows a setup o
 4. **Apply the database migrations** — paste every file in [`supabase/migrations/`](supabase/migrations/) into the SQL editor in numeric order (0001 → 0010), or run `supabase db push` if you use the CLI. The app does not work without them: rooms, membership, host authority, chat history, grants, watch history, host message deletion, chat reactions, queue voting, stale-room GC, and the RLS helpers live in Postgres. (0005/0006 fix pgcrypto search-path and RLS recursion issues that bite on fresh projects.)
 5. *(Optional)* **Authentication → Providers → Google** — enable it (OAuth client ID/secret from Google Cloud Console) to light up "Continue with Google" on the landing page. Without it the button shows a clear error and everything else works.
 
+## Room codes & participants
+
+- **Room code** — 6 uppercase alphanumeric characters from a 32-char alphabet (~1B combinations), generated server-side with `gen_random_bytes`. Share the `?room=CODE` URL or copy the invite link from the room header.
+- **Participant cap** — unlimited by default. The host can set a cap of 2–100 in Room Settings; the header shows `joined/cap` once a cap is set.
+- **Who can do what** — the host controls playback, locks the room, sets slow mode, manages the queue, and moderates members (ban, mute, kick, transfer host). Guests can chat, react, vote on queue items, and ask for playback control.
+
 ## Voice chat
 
 1. Create a free [LiveKit Cloud](https://cloud.livekit.io) project — copy the **URL**, **API key**, and **API secret**
@@ -115,6 +121,17 @@ Only add a source you have the right to embed. The platform must permit embeddin
 ## Contributing
 
 Bug reports and PRs are welcome. Run `npm run lint`, `npm run typecheck`, and `npm test` before opening a PR — CI enforces all three on every push. For security-related issues (e.g. playback-control forgery, RLS bypasses), open a PR or issue describing the improvement rather than public exploit details.
+
+## Troubleshooting
+
+| Problem | Likely cause | Fix |
+| --- | --- | --- |
+| Setup overlay won't go away | `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` not set | Paste keys in the overlay, or set them in your host's dashboard |
+| "Room not found" | Wrong code or migrations not applied | Check the 6-char code; run all migrations in `supabase/migrations/` |
+| Anonymous sign-in fails | Anonymous provider off | Enable it in Supabase Auth → Providers → Anonymous |
+| Joining an approved room stalls | Host hasn't admitted you yet | Host sees a "Join requests" banner; click Admit |
+| Drift chip stuck / host gone | Realtime channel dropped | Click "Disconnected · Retry" to rebuild the channel; heartbeats resume |
+| Voice bar missing | LiveKit not configured | Set `VITE_LIVEKIT_URL` and deploy the `livekit-token` edge function |
 
 ## Project layout
 
