@@ -234,10 +234,12 @@ a {
 }
 
 @keyframes shake {
+
   20%,
   60% {
     transform: translateX(-5px);
   }
+
   40%,
   80% {
     transform: translateX(5px);
@@ -749,6 +751,7 @@ a {
     opacity: 0;
     transform: translate(-50%, 8px);
   }
+
   to {
     opacity: 1;
     transform: translate(-50%, 0);
@@ -900,13 +903,16 @@ a {
     opacity: 0;
     transform: translateY(20px) scale(0.6);
   }
+
   12% {
     opacity: 1;
     transform: translateY(0) scale(1.15);
   }
+
   30% {
     transform: translateY(-40px) scale(1);
   }
+
   100% {
     opacity: 0;
     transform: translateY(-220px) scale(0.9);
@@ -1338,13 +1344,11 @@ input[type="range"].seek {
   border-radius: 3px;
   outline: none;
   cursor: pointer;
-  background: linear-gradient(
-    to right,
-    var(--accent) 0%,
-    var(--accent) calc(var(--fill, 0) * 1%),
-    #3a352f calc(var(--fill, 0) * 1%),
-    #3a352f 100%
-  );
+  background: linear-gradient(to right,
+      var(--accent) 0%,
+      var(--accent) calc(var(--fill, 0) * 1%),
+      #3a352f calc(var(--fill, 0) * 1%),
+      #3a352f 100%);
 }
 
 input[type="range"].seek::-webkit-slider-thumb {
@@ -1385,13 +1389,11 @@ input[type="range"].volume {
   border-radius: 3px;
   outline: none;
   cursor: pointer;
-  background: linear-gradient(
-    to right,
-    var(--accent) 0%,
-    var(--accent) calc(var(--fill, 100) * 1%),
-    #3a352f calc(var(--fill, 100) * 1%),
-    #3a352f 100%
-  );
+  background: linear-gradient(to right,
+      var(--accent) 0%,
+      var(--accent) calc(var(--fill, 100) * 1%),
+      #3a352f calc(var(--fill, 100) * 1%),
+      #3a352f 100%);
 }
 
 input[type="range"].volume::-webkit-slider-thumb {
@@ -1791,11 +1793,11 @@ input[type="range"].volume:disabled {
    only scroll path when the card stack exceeds the window height. Upper
    cards keep their natural size; the chat card absorbs leftover space, and
    the sidebar scrolls to keep the chat form reachable on short viewports. */
-.sidebar > .card {
+.sidebar>.card {
   flex-shrink: 0;
 }
 
-.sidebar > .chat-card {
+.sidebar>.chat-card {
   flex: 1 1 auto;
 }
 
@@ -2390,12 +2392,14 @@ button.moment-jump:hover {
 }
 
 @keyframes typing-bounce {
+
   0%,
   60%,
   100% {
     transform: translateY(0);
     opacity: 0.5;
   }
+
   30% {
     transform: translateY(-3px);
     opacity: 1;
@@ -2671,6 +2675,7 @@ button.moment-jump:hover {
     opacity: 0;
     transform: translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -2721,11 +2726,13 @@ button.moment-jump:hover {
 }
 
 @keyframes approval-pulse {
+
   0%,
   100% {
     opacity: 0.35;
     transform: scale(0.85);
   }
+
   50% {
     opacity: 1;
     transform: scale(1);
@@ -2809,6 +2816,7 @@ button.moment-jump:hover {
    bar keeps its icon widths (a single row can't afford +6px per button) but
    stretches height, which is where fingers actually miss. */
 @media (pointer: coarse) {
+
   .btn.small,
   .topbar .btn.small,
   .chat-form .btn.small,
@@ -2882,6 +2890,7 @@ button.moment-jump:hover {
    The one exception is the idle controls bar, whose exit relies on a
    transform — motion-free users keep the opacity+pointer-events hide. */
 @media (prefers-reduced-motion: reduce) {
+
   *,
   *::before,
   *::after {
