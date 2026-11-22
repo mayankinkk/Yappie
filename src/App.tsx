@@ -17,6 +17,7 @@ export default function App() {
   const init = useSession((s) => s.init);
   const code = useRoom((r) => r.code);
   const joinRoom = useRoom((r) => r.joinRoom);
+  const restoreOfflineRoom = useRoom((r) => r.restoreOfflineRoom);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,6 +26,12 @@ export default function App() {
       if (cancelled) return;
       const roomParam = new URLSearchParams(location.search).get("room")?.toUpperCase() || "";
       if (isValidRoomCode(roomParam) && isSupabaseConfigured() && p.name !== "Guest") {
+        // Offline with a cached snapshot: reopen the room read-only instead
+        // of failing join and landing on a broken home screen.
+        if (!navigator.onLine && restoreOfflineRoom(roomParam, p)) {
+          setBooted(true);
+          return;
+        }
         try {
           await joinRoom(roomParam, p);
         } catch (e) {

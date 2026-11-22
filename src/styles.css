@@ -1492,6 +1492,33 @@ input[type="range"].volume:disabled {
   flex: none;
 }
 
+.landing-offline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+}
+
+.landing-wrap {
+  position: relative;
+}
+
+.offline-open {
+  background: none;
+  border: none;
+  color: #fde68a;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+
+.offline-open:hover {
+  color: #fff;
+}
+
 .conn-pill {
   font-size: 0.72rem;
   font-weight: 650;

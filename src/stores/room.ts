@@ -47,6 +47,7 @@ import {
 import { ensureAuthed } from "./session";
 import { MinGap, RateLimiter } from "../lib/ratelimit";
 import { captureError } from "../lib/telemetry";
+import { loadOfflineRoom, saveOfflineRoom, type OfflineRoomSnapshot } from "../lib/offline-room";
 
 const CHAT_TRIM = 200;
 const HEARTBEAT_MS = 20_000;
@@ -175,6 +176,10 @@ let playbackPersistTimer: ReturnType<typeof setInterval> | null = null;
 let lastPlaybackPersistAt = 0;
 /** Keep-alive divider: every 3rd20s heartbeat (~60s) re-announces presence. */
 let presenceBeat = 0;
+/** True while the room was reopened from the offline snapshot — the next
+ *  reconnect must run a full joinRoom (membership/queue/grants), not just
+ *  a channel resubscribe. */
+let offlineRestored = false;
 
 /**
  * The one presence payload shape — subscribe-track, typing, voice and the
@@ -249,6 +254,8 @@ interface RoomState {
 
   createRoom(profile: Profile, password?: string | null): Promise<void>;
   joinRoom(code: string, profile: Profile, password?: string | null): Promise<void>;
+  /** Reopen a cached room offline (queue/chat/outbox) when the network is down. */
+  restoreOfflineRoom(code: string, profile: Profile): boolean;
   leaveRoom(): void;
   attachPlayer(adapter: PlayerAdapter): void;
   loadMembers(): Promise<void>;
@@ -1304,7 +1311,13 @@ export const useRoom = create<RoomState>((set, get) => {
         throw new RoomError("config", "Connect Supabase first", true);
       }
       const p = (await ensureAuthed()) || profile;
+      // leaveRoom() clears the outbox — keep it when rejoining the same room
+      // so chat typed offline survives a refresh + rejoin cycle.
+      const prevCode = get().code;
+      const prevOutbox = get().outbox;
       get().leaveRoom();
+      if (prevCode === code && prevOutbox.length) set({ outbox: prevOutbox });
+      offlineRestored = false;
 
       let joined: JoinedRoom;
       try {
@@ -1316,6 +1329,11 @@ export const useRoom = create<RoomState>((set, get) => {
         if (err.code === "approval") {
           requestJoinApproval(code, password ?? null, p);
           throw new RoomError(err.code, err.message, true);
+        }
+        // Network down mid-join: fall back to the offline snapshot when we
+        // have one, instead of dumping the user on a dead landing page.
+        if (!navigator.onLine && get().restoreOfflineRoom(code, p)) {
+          throw new RoomError("offline", "Offline — showing the last saved room", true);
         }
         if (!err.silent) get().pushToast(err.message, "error");
         throw new RoomError(err.code, err.message, true);
@@ -1429,9 +1447,64 @@ export const useRoom = create<RoomState>((set, get) => {
       startRoomTimers(code);
     },
 
+    restoreOfflineRoom(code, profile) {
+      const clean = code.toUpperCase();
+      const snap = loadOfflineRoom(clean);
+      if (!snap || snap.code !== clean) return false;
+      get().leaveRoom();
+      offlineRestored = true;
+      selfProfile = profile;
+      resumeRef = null;
+      set({
+        code: clean,
+        connection: "error",
+        hostId: snap.hostId,
+        guestsCanControl: snap.guestsCanControl,
+        roomLocked: snap.roomLocked,
+        roomSlowMode: snap.roomSlowMode,
+        queue: snap.queue,
+        queueVersion: snap.queueVersion,
+        videoId: snap.videoId,
+        grantedTo: snap.grantedTo,
+        pendingControl: null,
+        watched: snap.watched,
+        titles: snap.titles,
+        playing: false,
+        messages: snap.messages,
+        outbox: snap.outbox,
+        unread: 0,
+        mentions: 0,
+        participants: [],
+        members: [],
+        floating: [],
+        typing: {},
+        upNext: null,
+        audit: [],
+        failedChat: null,
+        roomName: snap.roomName,
+        roomTopic: snap.roomTopic,
+        maxMembers: snap.maxMembers,
+        requireApproval: snap.requireApproval,
+        captionsLang: snap.captionsLang,
+        pendingJoins: [],
+        awaitingApproval: false,
+        drift: null,
+        syncFresh: false,
+      });
+      if (snap.captionsLang) setCaptionLangCache(snap.captionsLang);
+      rememberRoom(clean);
+      const url = new URL(location.href);
+      url.searchParams.set("room", clean);
+      history.replaceState(null, "", url);
+      document.title = `Yappie · ${clean}`;
+      get().pushToast("Offline — showing the last saved room state", "error");
+      return true;
+    },
+
     leaveRoom() {
       const code = get().code;
       if (code) void leaveRoomRpc(code);
+      offlineRestored = false;
       if (driftTimer) clearInterval(driftTimer);
       driftTimer = null;
       if (heartbeatTimer) clearInterval(heartbeatTimer);
@@ -1701,6 +1774,20 @@ export const useRoom = create<RoomState>((set, get) => {
       }
       if (s.connection === "connecting") return;
       clearReconnectTimer();
+      // Offline restore never ran join_room — a plain channel resubscribe
+      // would miss membership/queue/grants, so rejoin fully once the
+      // network is back.
+      if (offlineRestored) {
+        offlineRestored = false;
+        try {
+          await get().joinRoom(s.code, profile);
+        } catch {
+          offlineRestored = true;
+          set({ connection: "error" });
+          scheduleReconnect();
+        }
+        return;
+      }
       set({ connection: "connecting" });
       channelUnsubscribe?.();
       channelUnsubscribe = null;
@@ -2242,3 +2329,82 @@ export function isHostNow(): boolean {
   const s = useRoom.getState();
   return !!selfProfile && s.hostId === selfProfile.id;
 }
+
+/** Fields worth persisting for an offline reopen (everything else is
+ *  either empty on restore or refetched on reconnect). */
+function offlineSnapshotFrom(s: {
+  code: string | null;
+  hostId: string;
+  guestsCanControl: boolean;
+  roomLocked: boolean;
+  roomSlowMode: number;
+  queueVersion: number;
+  videoId: string | null;
+  queue: QueueItem[];
+  watched: WatchedEntry[];
+  titles: Record<string, string>;
+  messages: ChatMessage[];
+  outbox: OutboxEntry[];
+  roomName: string | null;
+  roomTopic: string | null;
+  maxMembers: number | null;
+  requireApproval: boolean;
+  captionsLang: string | null;
+  grantedTo: string[];
+}): OfflineRoomSnapshot | null {
+  if (!s.code) return null;
+  return {
+    code: s.code,
+    savedAt: Date.now(),
+    hostId: s.hostId,
+    guestsCanControl: s.guestsCanControl,
+    roomLocked: s.roomLocked,
+    roomSlowMode: s.roomSlowMode,
+    queueVersion: s.queueVersion,
+    videoId: s.videoId,
+    queue: s.queue,
+    watched: s.watched,
+    titles: s.titles,
+    messages: s.messages,
+    outbox: s.outbox,
+    roomName: s.roomName,
+    roomTopic: s.roomTopic,
+    maxMembers: s.maxMembers,
+    requireApproval: s.requireApproval,
+    captionsLang: s.captionsLang,
+    grantedTo: s.grantedTo,
+  };
+}
+
+// Persist a lightweight room snapshot whenever durable room state changes,
+// and flush one last snapshot when leaving so an offline refresh can reopen.
+let offlineSnapTimer: ReturnType<typeof setTimeout> | null = null;
+useRoom.subscribe((state, prev) => {
+  const relevant =
+    state.code !== prev.code ||
+    state.queue !== prev.queue ||
+    state.videoId !== prev.videoId ||
+    state.messages !== prev.messages ||
+    state.outbox !== prev.outbox ||
+    state.roomName !== prev.roomName ||
+    state.roomTopic !== prev.roomTopic ||
+    state.hostId !== prev.hostId ||
+    state.queueVersion !== prev.queueVersion ||
+    state.watched !== prev.watched ||
+    state.grantedTo !== prev.grantedTo;
+  if (!relevant) return;
+  // Leaving: flush the pre-leave state (code is null on `state`).
+  if (!state.code && prev.code) {
+    const snap = offlineSnapshotFrom(prev);
+    if (snap) saveOfflineRoom(snap);
+    return;
+  }
+  if (!state.code) return;
+  if (offlineSnapTimer) clearTimeout(offlineSnapTimer);
+  offlineSnapTimer = setTimeout(() => {
+    offlineSnapTimer = null;
+    const s = useRoom.getState();
+    const snap = offlineSnapshotFrom(s);
+    if (snap) saveOfflineRoom(snap);
+  }, 400);
+});

@@ -4,6 +4,7 @@ import { useRoom } from "../stores/room";
 import { sanitizeCode } from "../lib/ids";
 import { isSupabaseConfigured } from "../lib/supabase";
 import { loadRecentRooms } from "../lib/recent";
+import { loadOfflineRoom } from "../lib/offline-room";
 import { RoomError } from "../lib/rooms-api";
 import { YappieMark } from "../App";
 import LandingArt from "./LandingArt";
@@ -22,6 +23,7 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
   const pushToast = useRoom((s) => s.pushToast);
   const awaitingApproval = useRoom((s) => s.awaitingApproval);
   const cancelApproval = useRoom((s) => s.cancelApproval);
+  const restoreOfflineRoom = useRoom((s) => s.restoreOfflineRoom);
   const [code, setCode] = useState(
     new URLSearchParams(location.search).get("room")?.toUpperCase() || "",
   );
@@ -34,6 +36,45 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
   const [roomPassword, setRoomPassword] = useState("");
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [recent] = useState(loadRecentRooms);
+  const [offline, setOffline] = useState(() =>
+    typeof navigator !== "undefined" ? !navigator.onLine : false,
+  );
+  const [offlineCode, setOfflineCode] = useState<string | null>(() => {
+    if (typeof navigator === "undefined" || navigator.onLine) return null;
+    const param = sanitizeCode(new URLSearchParams(location.search).get("room") || "");
+    if (param.length === 6 && loadOfflineRoom(param)) return param;
+    const hit = loadRecentRooms().find((r) => loadOfflineRoom(r.code));
+    return hit?.code ?? null;
+  });
+
+  useEffect(() => {
+    const goOffline = () => {
+      setOffline(true);
+      const param = sanitizeCode(new URLSearchParams(location.search).get("room") || "");
+      if (param.length === 6 && loadOfflineRoom(param)) setOfflineCode(param);
+      else {
+        const hit = loadRecentRooms().find((r) => loadOfflineRoom(r.code));
+        setOfflineCode(hit?.code ?? null);
+      }
+    };
+    const goOnline = () => {
+      setOffline(false);
+      setOfflineCode(null);
+    };
+    window.addEventListener("offline", goOffline);
+    window.addEventListener("online", goOnline);
+    return () => {
+      window.removeEventListener("offline", goOffline);
+      window.removeEventListener("online", goOnline);
+    };
+  }, []);
+
+  function openOfflineRoom(target: string) {
+    if (!profile || !restoreOfflineRoom(target, profile)) {
+      pushToast("No saved state for that room", "error");
+      return;
+    }
+  }
 
   useEffect(() => {
     const clean = sanitizeCode(askPasswordFor || "");
@@ -63,6 +104,14 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
     return true;
   }
 
+  function requireOnline(): boolean {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      pushToast("You're offline — rooms need a connection", "error");
+      return false;
+    }
+    return true;
+  }
+
   function handleJoinError(e: unknown, clean: string): void {
     if (e instanceof RoomError && e.code === "password") {
       setJoinPassword(clean);
@@ -77,7 +126,7 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
 
   async function handleCreate() {
     if (busy || awaitingApproval) return;
-    if (!requireName() || !requireSetup()) return;
+    if (!requireName() || !requireSetup() || !requireOnline()) return;
     const pw = createProtected && roomPassword.trim() ? roomPassword.trim() : null;
     if (createProtected && !pw) {
       setShake((s) => s + 1);
@@ -97,6 +146,11 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
   async function doJoin(clean: string) {
     if (busy || awaitingApproval) return;
     if (!requireName() || !requireSetup()) return;
+    if (!requireOnline()) {
+      // Offline with a cached snapshot for this code: open it read-only.
+      if (clean.length === 6 && profile && restoreOfflineRoom(clean, profile)) return;
+      return;
+    }
     if (clean.length !== 6) {
       setShake((s) => s + 1);
       pushToast("Room codes are 6 characters", "error");
@@ -122,6 +176,23 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
 
   return (
     <div className="screen landing-wrap">
+      {offline && (
+        <div className="offline-banner landing-offline" role="alert">
+          You're offline — rooms and chat need a connection
+          {offlineCode && (
+            <>
+              {" · "}
+              <button
+                type="button"
+                className="offline-open"
+                onClick={() => openOfflineRoom(offlineCode)}
+              >
+                Open saved room {offlineCode}
+              </button>
+            </>
+          )}
+        </div>
+      )}
       <div className={`landing-card ${shake > 0 ? "shake" : ""}`} key={shake}>
         <div className="logo">
           <YappieMark size={34} />
@@ -190,8 +261,12 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
             if (e.key === "Enter") e.currentTarget.blur();
           }}
         />
-        <button className="btn primary wide" onClick={handleCreate} disabled={busy || awaitingApproval}>
-          {busy ? "Joining…" : "Create a room"}
+        <button
+          className="btn primary wide"
+          onClick={handleCreate}
+          disabled={busy || awaitingApproval || offline}
+        >
+          {busy ? "Joining…" : offline ? "Offline" : "Create a room"}
         </button>
         <label className="pw-toggle">
           <input
@@ -228,7 +303,11 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
               if (e.key === "Enter") void handleJoin();
             }}
           />
-          <button className="btn" onClick={handleJoin} disabled={busy || awaitingApproval}>
+          <button
+            className="btn"
+            onClick={handleJoin}
+            disabled={busy || awaitingApproval || offline}
+          >
             Join
           </button>
         </div>
@@ -239,8 +318,12 @@ export default function Landing({ onNeedSetup, askPasswordFor }: Props) {
               <button
                 key={r.code}
                 className="recent-chip"
-                title={`Rejoin room ${r.code}`}
-                disabled={busy || awaitingApproval}
+                title={
+                  offline && loadOfflineRoom(r.code)
+                    ? `Open saved room ${r.code} offline`
+                    : `Rejoin room ${r.code}`
+                }
+                disabled={busy || awaitingApproval || (offline && !loadOfflineRoom(r.code))}
                 onClick={() => {
                   setCode(r.code);
                   void doJoin(r.code);

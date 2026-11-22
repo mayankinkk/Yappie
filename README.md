@@ -52,7 +52,7 @@ The function also needs `SUPABASE_URL` and `SUPABASE_ANON_KEY` (auto-injected by
 | --- | --- |
 | `npm run dev` | dev server |
 | `npm run build` | typecheck + production build to `dist/` |
-| `npm test` | unit tests for the sync engine, rate limiters, recent rooms, and video-id parsing |
+| `npm test` | unit tests for the sync engine, rate limiters, recent rooms, offline snapshots, and video-id parsing |
 | `npm run test:e2e` | Playwright two-client tests (needs `.env.local` keys + migrations; skips otherwise) |
 | `npm run lint` | ESLint over `src/` |
 | `npm run preview` | serve the production build |
@@ -88,7 +88,17 @@ Static hosting, no server needed:
 
 **Deploys**: the GitHub repo is connected to Vercel, so every push to `main` goes straight to production and every PR gets an automatic preview URL — no workflow required. The `Preview deploy` GitHub Actions workflow remains as an optional fallback (Netlify, or setups without the Vercel Git integration); it skips itself unless `VERCEL_*` or `NETLIFY_*` secrets are configured. Build-time env: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_LIVEKIT_URL` (Vercel reads these from project settings instead; without them visitors get the in-app setup overlay).
 
-After you know your production URL, add `og:url` and `og:image` (absolute URLs — e.g. `/icons/icon-512.png` served from your domain) to `index.html` for richer link previews.
+After you know your production URL, `og:url` and `og:image` are already absolute in `index.html` — update them if the domain changes (e.g. `/og.png` served from your domain) for richer link previews.
+
+## Offline (PWA)
+
+The service worker caches the app shell and hashed assets so the install opens instantly and keeps working offline:
+
+- **In a room**: the banner shows “You're offline — reconnecting when the network is back…”. Chat typed while offline queues in the outbox and flushes on reconnect. Queue/chat state is snapshotted to `localStorage` (`yappie.offlineRoom`).
+- **Offline refresh** with `?room=CODE` (or a recent room): the last snapshot reopens read-only — queue, chat, and outbox — with connection in the error state. Retry (or the browser coming back online) runs a full rejoin.
+- **Landing**: create/join are disabled with a clear banner; if a saved room exists you can open it from the banner or Recent.
+
+Rooms themselves still need the network — the shell is what survives offline.
 
 ## How sync works
 
@@ -143,6 +153,7 @@ src/
   stores/room.ts         room state, transport wiring, host logic
   stores/session.ts      anonymous auth + profile
   lib/rooms-api.ts       typed wrappers around Postgres RPCs
+  lib/offline-room.ts    localStorage snapshot for offline room reopen
   components/            UI
   voice/useVoice.ts      LiveKit wrapper (lazy-loaded)
 supabase/functions/livekit-token/  edge function minting LiveKit JWTs
