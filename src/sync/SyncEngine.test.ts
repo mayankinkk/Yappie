@@ -554,7 +554,7 @@ describe("SyncEngine snapshot", () => {
 });
 
 describe("SyncEngine rate limiting", () => {
-  it("coalesces a burst of play/pause into at most 2 sends, final state wins", async () => {
+  it("sends play/pause immediately for sync, final state wins", async () => {
     const { engine, player, transport, setVideoId, setRole } = makeEngine();
     setRole({ selfId: "self", hostId: "self", guestsCanControl: false });
     setVideoId("abcdefghijk");
@@ -562,12 +562,13 @@ describe("SyncEngine rate limiting", () => {
     engine.localPause();
     engine.localPlay();
     engine.localPause();
+    // With immediate send, all 4 actions are sent right away (no outGap delay).
     const immediate = transport.sent.filter((s) => s.event === "control");
-    expect(immediate.length).toBeLessThan(4);
+    expect(immediate.length).toBe(4);
     await new Promise((r) => setTimeout(r, 500));
     const all = transport.sent.filter((s) => s.event === "control");
     const last = all[all.length - 1].payload as ControlPayload;
-    expect(all.length).toBeLessThanOrEqual(2);
+    expect(all.length).toBe(4);
     expect(last.playing).toBe(false);
     expect(player.isPlaying()).toBe(false);
   });

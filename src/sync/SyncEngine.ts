@@ -181,17 +181,19 @@ export class SyncEngine {
     this.localRef = { videoId, time, playing, sentAt: nowMs() };
     this.opts.onLocalState({ videoId, time, playing });
 
-    // Payloads carry the full state, so a burst can be coalesced into one
-    // send after the gap instead of flooding the channel.
-    if (action !== "load" && !this.outGap.allow(selfId)) {
-      if (!this.outTimer) {
-        const delay = OUT_GAP_MS / 2;
-        this.outTimer = setTimeout(() => {
-          this.outTimer = null;
-          this.flushCoalesced();
-        }, delay);
+    // Immediately send play/pause so sync is not delayed by outGap coalescing.
+    // seek/load still go through the gap to avoid flooding the channel.
+    if (action !== "load" && action !== "play" && action !== "pause") {
+      if (!this.outGap.allow(selfId)) {
+        if (!this.outTimer) {
+          const delay = OUT_GAP_MS / 2;
+          this.outTimer = setTimeout(() => {
+            this.outTimer = null;
+            this.flushCoalesced();
+          }, delay);
+        }
+        return;
       }
-      return;
     }
     const payload: ControlPayload = {
       videoId,
