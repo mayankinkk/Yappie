@@ -1598,14 +1598,29 @@ export const useRoom = create<RoomState>((set, get) => {
       if (playerAdapter.isPlaying()) engine?.localPause();
       else engine?.localPlay();
       persistPlayback({ force: true });
+      // Broadcast a snapshot so every member gets the updated playing state
+      // even if the control broadcast is dropped by realtime.
+      void engine?.sendSnapshot({
+        hostId: s.hostId,
+        guestsCanControl: s.guestsCanControl,
+        queue: get().queue,
+        version: s.queueVersion,
+      });
     },
 
     seekTo(time) {
-      if (!get().videoId) return;
+      const s = get();
+      if (!s.videoId) return;
       engine?.localSeek(time);
       // Persist the SEEKED position: currentPlayback() reads the pre-seek
       // adapter time, which used to overwrite the row with a stale position.
       persistPlayback({ force: true, time });
+      void engine?.sendSnapshot({
+        hostId: s.hostId,
+        guestsCanControl: s.guestsCanControl,
+        queue: get().queue,
+        version: s.queueVersion,
+      });
     },
 
     /**
