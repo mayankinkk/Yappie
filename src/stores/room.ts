@@ -1426,7 +1426,6 @@ export const useRoom = create<RoomState>((set, get) => {
         upNext: null,
         audit: [],
         failedChat: null,
-        outbox: [],
         roomName: roomMeta.name,
         roomTopic: roomMeta.topic,
         maxMembers: roomMeta.maxMembers,
